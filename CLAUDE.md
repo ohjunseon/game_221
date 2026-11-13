@@ -25,6 +25,7 @@
 - 시스템 간 통신은 `EventBus` 시그널로 한다
 - 입력 액션은 `player.gd`의 `ACTIONS`에서 런타임 등록한다 (`project.godot`에 없음)
 - 선반 저장량의 원본은 `GameState.shelf_stored`다. `Shelf` 노드는 `shelf_changed` 시그널로 화면만 갱신한다
+- 액션 스킬의 지속·쿨타임은 `GameState.now`(게임 시계) 기준이다. 테스트는 `GameState.now += 초`로 시간을 넘긴다
 - 테스트는 시작할 때 `SaveManager.enabled = false`로 실제 저장 파일을 보호한다
 - 밸런스 수치를 바꾸면 `balance.tscn`과 `smoke.tscn`을 다시 돌린다
 - 단계가 끝나면 `PROGRESS.md`를 갱신한다
