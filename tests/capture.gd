@@ -28,7 +28,8 @@ func _ready() -> void:
 
 	# 바닥의 장난감 형태와 손에 든 장난감·박스
 	# 큰 손을 배워 박스 2개까지: 한 형태 4개로 박스를 만들고, 다른 형태 2개를 모으는 중
-	GameState.learn("big_hands")
+	GameState.add_coins(100)
+	GameState.upgrade("big_hands")
 	var by_type := {}
 	for toy: Node3D in get_tree().get_nodes_in_group("toy"):
 		var type: int = toy.get_meta("toy_type")
@@ -46,8 +47,9 @@ func _ready() -> void:
 	await _shot("2b_toys")
 
 	# 스킬 메뉴
-	GameState.learn("bundle")
+	GameState.learn("magnet")
 	GameState.learn("auto_sort")
+	GameState.learn("jackpot")
 	GameState.add_coins(500)
 	_main.get_node("HUD")._set_menu_open(true)
 	await _wait(10)
@@ -55,6 +57,9 @@ func _ready() -> void:
 	_main.get_node("HUD")._set_menu_open(false)
 
 	# 2층으로 가는 경사로와 문 쪽
+	# 스킬 슬롯: 자동 정리와 대박 타임을 켠 상태
+	_player.use_skill(2)
+	_player.use_skill(3)
 	_look_from(Vector3(4.0, 0.9, -21.5), 0.25, 0.15)
 	await _wait(10)
 	await _shot("4_ramp")

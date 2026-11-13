@@ -35,15 +35,20 @@ var saved_at: int = 0
 var menu_open: bool = false
 var offline_report: Dictionary = {}
 
+## 게임 내 시계(초). 액션 스킬의 지속 시간과 쿨타임 기준
+var now: float = 0.0
+
 var _auto_accum: float = 0.0
 var _completed_emitted: bool = false
+var _active_until: Dictionary = {}
+var _ready_at: Dictionary = {}
 
 
 func _process(delta: float) -> void:
-	var rate := auto_rate()
-	if rate <= 0.0 or total_sorted >= TOTAL_TOYS:
+	now += delta
+	if not is_active("auto_sort") or total_sorted >= TOTAL_TOYS:
 		return
-	_auto_accum += rate * delta
+	_auto_accum += auto_rate() * delta
 	if _auto_accum >= 1.0:
 		var amount := int(_auto_accum)
 		_auto_accum -= amount
@@ -70,7 +75,7 @@ func store_in_shelf(
 		return 0
 	shelf_stored[key] = before + accepted
 	total_sorted += accepted
-	coins += int(ceil(accepted * coin_mult))
+	coins += int(ceil(accepted * coin_mult * coin_multiplier()))
 	EventBus.shelf_changed.emit(key)
 	if before + accepted >= capacity:
 		skill_points += 1
@@ -162,21 +167,58 @@ func cap(id: String) -> int:
 	return int(skill_caps.get(id, 0))
 
 
+## 배운 액션 스킬 수
 func learned_count() -> int:
 	var count := 0
-	for id: String in skill_levels:
-		if int(skill_levels[id]) > 0:
+	for id in Skills.ACTION_ORDER:
+		if level(id) > 0:
 			count += 1
 	return count
 
 
+## 자동 정리가 켜져 있는 동안의 초당 정리 개수
 func auto_rate() -> float:
 	return Skills.auto_rate(level("auto_sort"), level("bundle"))
 
 
-## 스킬 포인트 1개로 새 스킬을 배운다.
+## 쿨타임까지 감안한 평균 초당 정리 개수 (오프라인 보상용)
+func auto_average_rate() -> float:
+	return auto_rate() * Skills.uptime("auto_sort", level("auto_sort"))
+
+
+## 액션 스킬을 발동한다. 배우지 않았거나 쿨타임이면 실패.
+func activate(id: String) -> bool:
+	var current := level(id)
+	if not Skills.is_action(id) or current <= 0 or cooldown_left(id) > 0.0:
+		return false
+	_active_until[id] = now + Skills.duration(id, current)
+	_ready_at[id] = now + Skills.cooldown(id, current)
+	EventBus.skill_activated.emit(id)
+	return true
+
+
+func is_active(id: String) -> bool:
+	return active_left(id) > 0.0
+
+
+func active_left(id: String) -> float:
+	return maxf(0.0, float(_active_until.get(id, 0.0)) - now)
+
+
+func cooldown_left(id: String) -> float:
+	return maxf(0.0, float(_ready_at.get(id, 0.0)) - now)
+
+
+## 대박 타임이 켜져 있으면 코인 배수
+func coin_multiplier() -> float:
+	if is_active("jackpot"):
+		return Skills.jackpot_mult(level("jackpot"))
+	return 1.0
+
+
+## 스킬 포인트 1개로 액션 스킬을 배운다.
 func learn(id: String) -> bool:
-	if level(id) > 0 or skill_points <= 0:
+	if not Skills.is_action(id) or level(id) > 0 or skill_points <= 0:
 		return false
 	skill_points -= 1
 	skill_levels[id] = 1
@@ -188,7 +230,8 @@ func learn(id: String) -> bool:
 ## 코인으로 레벨을 올린다.
 func upgrade(id: String) -> bool:
 	var current := level(id)
-	if current <= 0 or current >= cap(id):
+	# 액션 스킬은 배운 뒤 한계 레벨까지만, 업그레이드는 처음부터 제한 없이 올린다
+	if Skills.is_action(id) and (current <= 0 or current >= cap(id)):
 		return false
 	var price := Skills.cost(id, current)
 	if coins < price:
@@ -202,7 +245,7 @@ func upgrade(id: String) -> bool:
 
 ## 스킬 포인트 1개로 최대 레벨을 늘린다.
 func breakthrough(id: String) -> bool:
-	if level(id) <= 0 or skill_points <= 0:
+	if not Skills.is_action(id) or level(id) <= 0 or skill_points <= 0:
 		return false
 	skill_points -= 1
 	skill_caps[id] = cap(id) + Skills.CAP_PER_POINT
@@ -249,6 +292,8 @@ func from_dict(data: Dictionary) -> void:
 	skill_caps = _int_dict(data.get("skill_caps", {}))
 	shelf_stored = _int_dict(data.get("shelf_stored", {}))
 	_auto_accum = 0.0
+	_active_until.clear()
+	_ready_at.clear()
 	_completed_emitted = total_sorted >= TOTAL_TOYS
 	offline_report = {}
 

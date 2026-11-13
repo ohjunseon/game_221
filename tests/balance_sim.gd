@@ -8,16 +8,13 @@ const WALK_SECONDS := 2.5
 const CLICK_SECONDS := 0.5
 ## 같은 형태의 다음 장난감까지 걸어가는 시간
 const SEARCH_SECONDS := 0.6
-## 바닥 1㎡당 같은 형태 장난감 수 (90개 / 6종 / 약 124㎡)
-const SAME_TYPE_DENSITY := 0.12
 const POSTURE_SECONDS := 0.6
 const MILESTONES: Array[int] = [100, 1000, 5000, 10000, 100000, 1000000, 5000000, 10000000]
-const LEARN_ORDER: Array[String] = [
-	"bundle", "big_hands", "auto_sort", "long_arm", "magnet",
-	"quick_hands", "sprint", "critical", "combo",
-]
-## 한계 돌파에 포인트를 쓸 가치가 있는 스킬
-const BREAK_ORDER: Array[String] = ["bundle", "auto_sort", "big_hands", "magnet"]
+## 액션 스킬을 배우는 순서, 한계 돌파 우선순위
+const LEARN_ORDER: Array[String] = ["magnet", "auto_sort", "jackpot", "long_arm"]
+const BREAK_ORDER: Array[String] = ["auto_sort", "jackpot", "magnet", "long_arm"]
+## 자석이 켜져 있을 때 줍는 시간이 줄어드는 비율
+const MAGNET_SAVING := 0.8
 
 var _levels: Dictionary = {}
 var _caps: Dictionary = {}
@@ -36,13 +33,16 @@ func _ready() -> void:
 	while second < MAX_SECONDS and _total < GameState.TOTAL_TOYS:
 		second += 1
 		var manual := _manual_rate()
-		var auto := Skills.auto_rate(_level("auto_sort"), _level("bundle"))
+		# 액션 스킬은 쿨타임이 끝날 때마다 바로 쓴다고 보고 가동률을 곱한다
+		var auto := (
+			Skills.auto_rate(_level("auto_sort"), _level("bundle"))
+			* Skills.uptime("auto_sort", _level("auto_sort"))
+		)
 		carry_over += manual + auto
 		var amount := int(carry_over)
 		carry_over -= amount
 		var stored := _store(amount)
-		var manual_share := manual / maxf(manual + auto, 0.0001)
-		_coins += stored * (manual_share * _manual_coin_mult() + (1.0 - manual_share))
+		_coins += stored * _coin_mult()
 		_spend()
 		while next_milestone < MILESTONES.size() and _total >= MILESTONES[next_milestone]:
 			print("%10s개: %s  (수동 %.1f/s, 자동 %.1f/s, 묶음 Lv%d, 자동 Lv%d)" % [
@@ -67,22 +67,21 @@ func _manual_rate() -> float:
 	var interval := Skills.repeat_interval(_level("quick_hands"))
 	if interval > 0.0:
 		click = interval
-	# 박스 하나에 같은 형태 장난감 BOX_SIZE개를 집어야 한다
-	# 자석은 같은 형태만 끌어온다: 반경 안에 있을 같은 형태 장난감 수로 추정
-	var radius := Skills.magnet_radius(_level("magnet"))
-	var extra := minf(Toys.BOX_SIZE - 1.0, PI * radius * radius * SAME_TYPE_DENSITY)
-	var picks := ceilf(float(carry * Toys.BOX_SIZE) / (1.0 + extra))
+	# 박스 하나에 같은 형태 장난감 BOX_SIZE개를 집어야 한다.
+	# 자석이 켜져 있는 동안에는 찾아다니고 클릭하는 시간이 크게 준다.
+	var picks := float(carry * Toys.BOX_SIZE)
 	var speed := Skills.speed_mult(_level("sprint"))
-	var cycle := (WALK_SECONDS + picks * SEARCH_SECONDS) / speed + picks * click + click
-	if _level("long_arm") <= 0:
-		cycle += POSTURE_SECONDS
+	var pick_time := picks * (SEARCH_SECONDS / speed + click)
+	pick_time *= 1.0 - MAGNET_SAVING * Skills.uptime("magnet", _level("magnet"))
+	var cycle := WALK_SECONDS / speed + pick_time + click
+	cycle += POSTURE_SECONDS * (1.0 - Skills.uptime("long_arm", _level("long_arm")))
 	return carry * Toys.BOX_SIZE * Skills.bundle(_level("bundle")) / cycle
 
 
-func _manual_coin_mult() -> float:
-	var crit := Skills.crit_chance(_level("critical")) * (Skills.CRIT_MULTIPLIER - 1.0)
-	var combo := Skills.MAX_COMBO * 0.5 * Skills.combo_step(_level("combo"))
-	return (1.0 + crit) * (1.0 + combo)
+## 대박 타임 가동률을 반영한 평균 코인 배수
+func _coin_mult() -> float:
+	var level := _level("jackpot")
+	return 1.0 + (Skills.jackpot_mult(level) - 1.0) * Skills.uptime("jackpot", level)
 
 
 ## 열려 있는 층의 선반 중 가장 작은 것부터 채운다.
@@ -151,9 +150,10 @@ func _spend() -> void:
 	while true:
 		var cheapest := ""
 		var price := 0
-		for id in LEARN_ORDER:
+		for id: String in Skills.DEFS:
 			var level := _level(id)
-			if level <= 0 or level >= int(_caps[id]):
+			# 액션 스킬은 배운 뒤 한계 레벨까지만, 업그레이드는 제한 없이
+			if Skills.is_action(id) and (level <= 0 or level >= int(_caps[id])):
 				continue
 			var cost := Skills.cost(id, level)
 			if cheapest == "" or cost < price:

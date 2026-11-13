@@ -8,6 +8,7 @@ signal shelf_completed(warehouse_id: int, floor_index: int, shelf_index: int)
 ## 선반 저장량이 바뀜 (key = "창고_층_선반")
 signal shelf_changed(key: String)
 signal skills_changed
+signal skill_activated(id: String)
 signal quest_changed
 signal door_toggled(warehouse_id: int, is_open: bool)
 ## 조준 중인 대상에 대한 안내 문구 (없으면 빈 문자열)

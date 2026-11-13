@@ -55,7 +55,7 @@ func load_game() -> void:
 
 ## 꺼져 있던 시간만큼 자동 정리 수입의 일부를 지급한다.
 func apply_offline_reward(now: int) -> int:
-	var rate := GameState.auto_rate()
+	var rate := GameState.auto_average_rate()
 	if GameState.saved_at <= 0 or rate <= 0.0:
 		return 0
 	var elapsed := mini(now - GameState.saved_at, GameState.OFFLINE_MAX_SECONDS)

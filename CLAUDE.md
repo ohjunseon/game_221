@@ -13,9 +13,9 @@
 
 ## 구조
 - `scripts/autoload/`: `EventBus`(시그널), `GameState`(수치·스킬·선반 저장량), `Sfx`(합성 효과음), `QuestManager`, `SaveManager`
-- `scripts/systems/`: `skills.gd`(스킬 정의·공식), `warehouse.gd`(창고 한 동), `world.gd`(마당·창고 배치·와르르)
+- `scripts/systems/`: `skills.gd`(액션 스킬 4종·업그레이드 4종의 정의와 공식), `toys.gd`(장난감 6종 형태·박스), `warehouse.gd`(창고 한 동), `world.gd`(마당·창고 배치·와르르)
 - `scripts/entities/`: `player.gd`, `shelf.gd`
-- `scripts/ui/hud.gd`: HUD와 스킬 메뉴(Tab)
+- `scripts/ui/hud.gd`: HUD, 스킬 슬롯 4칸(1~4 키), 스킬·업그레이드 메뉴(Tab)
 - `scenes/`: 씬 파일. `main.tscn`이 메인 씬. 월드는 코드로 생성한다
 - `data/`: 밸런스용 `Resource`(.tres), `assets/`: 모델·사운드
 

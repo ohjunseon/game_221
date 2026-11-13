@@ -11,7 +11,6 @@ const CROUCH_HEAD_Y := 0.1
 const CROUCH_LERP_SPEED := 10.0
 ## 1: 바닥·선반·문, 2: 장난감
 const RAY_MASK := 3
-const COMBO_WINDOW := 3.0
 const ARM_REST := Vector3(0.32, -0.42, -0.55)
 
 const ACTIONS := {
@@ -32,8 +31,6 @@ var boxes: Array[int] = []
 
 var _aim_text := ""
 var _repeat_timer := 0.0
-var _combo: int = 0
-var _last_place_time := -100.0
 var _shake := 0.0
 var _held_toy: Node3D
 var _held_toy_type: int = -1
@@ -68,6 +65,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_repeat_timer = Skills.repeat_interval(GameState.level("quick_hands"))
 		else:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	elif (
+		event is InputEventKey and event.pressed and not event.echo
+		and event.physical_keycode >= KEY_1
+		and event.physical_keycode < KEY_1 + Skills.ACTION_ORDER.size()
+	):
+		use_skill(event.physical_keycode - KEY_1)
 	elif event.is_action_pressed("ui_cancel"):
 		# Esc: 마우스 잠금 해제
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -86,6 +89,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y = JUMP_VELOCITY
 		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		_update_repeat(delta)
+	_update_magnet()
 
 	var target_head_y := CROUCH_HEAD_Y if is_crouching else STAND_HEAD_Y
 	head.position.y = lerpf(head.position.y, target_head_y, CROUCH_LERP_SPEED * delta)
@@ -114,7 +118,6 @@ func carry_capacity() -> int:
 
 
 ## 장난감을 집는다. 한 번에 한 형태만 모을 수 있고, 같은 형태 4개가 모이면 박스가 된다.
-## 자석 스킬이 있으면 주변의 같은 형태도 함께 집는다.
 func try_pick(toy: Node3D, quiet: bool = false) -> bool:
 	var capacity := carry_capacity()
 	if boxes.size() >= capacity:
@@ -129,24 +132,57 @@ func try_pick(toy: Node3D, quiet: bool = false) -> bool:
 			])
 			Sfx.play("error")
 		return false
-	var center := toy.global_position
 	_take(toy)
-	var radius := Skills.magnet_radius(GameState.level("magnet"))
-	if radius > 0.0:
-		for other: Node3D in get_tree().get_nodes_in_group("toy"):
-			if boxes.size() >= capacity:
-				break
-			if other.is_queued_for_deletion() or int(other.get_meta("toy_type", -1)) != type:
-				continue
-			if other.global_position.distance_to(center) <= radius:
-				_take(other)
 	Sfx.play("pick", 1.0 + 0.08 * loose)
 	_punch_arm()
 	_refresh_hands()
 	return true
 
 
-## 들고 있는 박스를 선반의 현재 단에 넣는다. 긴 팔 스킬이 없으면 자세가 맞아야 한다.
+## 액션 스킬 발동 (slot 0~3 = 숫자키 1~4)
+func use_skill(slot: int) -> bool:
+	var id := Skills.ACTION_ORDER[slot]
+	var skill_name: String = Skills.DEFS[id]["name"]
+	if GameState.level(id) <= 0:
+		EventBus.message_shown.emit("%s: 아직 배우지 않았습니다 (Tab)" % skill_name)
+		Sfx.play("error")
+		return false
+	if not GameState.activate(id):
+		EventBus.message_shown.emit(
+			"%s: 쿨타임 %d초" % [skill_name, ceili(GameState.cooldown_left(id))]
+		)
+		Sfx.play("error")
+		return false
+	EventBus.message_shown.emit("%s 발동!" % skill_name)
+	Sfx.play("unlock", 1.6)
+	return true
+
+
+## 자석이 켜져 있는 동안 주변 장난감이 손으로 날아온다. 모으는 형태가 있으면 그 형태만.
+func _update_magnet() -> void:
+	if not GameState.is_active("magnet"):
+		return
+	var capacity := carry_capacity()
+	var radius := Skills.magnet_radius(GameState.level("magnet"))
+	var took := false
+	for toy: Node3D in get_tree().get_nodes_in_group("toy"):
+		if boxes.size() >= capacity:
+			break
+		if toy.is_queued_for_deletion():
+			continue
+		if loose > 0 and int(toy.get_meta("toy_type", -1)) != held_type:
+			continue
+		var offset := toy.global_position - global_position
+		if absf(offset.y) > 2.0 or Vector2(offset.x, offset.z).length() > radius:
+			continue
+		_take(toy, true)
+		took = true
+	if took:
+		Sfx.play("pick", 1.0 + 0.08 * loose)
+		_refresh_hands()
+
+
+## 들고 있는 박스를 선반의 현재 단에 넣는다. 긴 팔이 켜져 있지 않으면 자세가 맞아야 한다.
 func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> bool:
 	if boxes.is_empty():
 		if not quiet:
@@ -159,7 +195,7 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 			EventBus.message_shown.emit("가득 찬 선반입니다")
 		return false
 	var required := Shelf.required_posture(shelf.current_tier())
-	if GameState.level("long_arm") <= 0 and posture != required:
+	if not GameState.is_active("long_arm") and posture != required:
 		if not quiet:
 			EventBus.message_shown.emit(
 				"%d단: %s" % [shelf.current_tier(), Shelf.posture_text(required)]
@@ -167,27 +203,17 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 			Sfx.play("error")
 		return false
 
-	var now := Time.get_ticks_msec() / 1000.0
-	_combo = mini(_combo + 1, Skills.MAX_COMBO) if now - _last_place_time <= COMBO_WINDOW else 0
-	_last_place_time = now
-	var coin_mult := 1.0 + _combo * Skills.combo_step(GameState.level("combo"))
-	var is_crit := randf() < Skills.crit_chance(GameState.level("critical"))
-	if is_crit:
-		coin_mult *= Skills.CRIT_MULTIPLIER
-
 	var per_box := Toys.BOX_SIZE * Skills.bundle(GameState.level("bundle"))
-	var accepted := shelf.add(boxes.size() * per_box, coin_mult, boxes[-1])
+	var accepted := shelf.add(boxes.size() * per_box, 1.0, boxes[-1])
 	for i in mini(ceili(float(accepted) / per_box), boxes.size()):
 		boxes.pop_back()
 	_refresh_hands()
 
 	var popup := "+%s" % Skills.fmt(accepted)
-	if is_crit:
-		popup += " 크리티컬!"
-	if _combo > 0 and GameState.level("combo") > 0:
-		popup += " 콤보 %d" % _combo
+	if GameState.is_active("jackpot"):
+		popup += "  코인 ×%.1f" % GameState.coin_multiplier()
 	EventBus.popup_requested.emit(popup)
-	Sfx.play("place", 1.0 + 0.04 * _combo)
+	Sfx.play("place")
 	_punch_arm()
 	return true
 
@@ -217,7 +243,9 @@ func _update_repeat(delta: float) -> void:
 
 func _raycast() -> Object:
 	var from := camera.global_position
-	var reach := Skills.reach(GameState.level("long_arm"))
+	var reach := Skills.BASE_REACH
+	if GameState.is_active("long_arm"):
+		reach = Skills.reach(GameState.level("long_arm"))
 	var to := from - camera.global_basis.z * reach
 	var query := PhysicsRayQueryParameters3D.create(from, to, RAY_MASK, [get_rid()])
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
@@ -231,7 +259,7 @@ func _update_aim_text() -> void:
 		var shelf := target as Shelf
 		if shelf.is_full():
 			text = "완성된 선반"
-		elif GameState.level("long_arm") > 0:
+		elif GameState.is_active("long_arm"):
 			text = "%d단: 좌클릭으로 넣기" % shelf.current_tier()
 		else:
 			var tier := shelf.current_tier()
@@ -255,10 +283,19 @@ func carry_text() -> String:
 	return text
 
 
-func _take(toy: Node3D) -> void:
+## fly가 참이면 장난감이 손으로 날아온 뒤 사라진다(자석).
+func _take(toy: Node3D, fly: bool = false) -> void:
 	held_type = toy.get_meta("toy_type", 0)
 	toy.remove_from_group("toy")
-	toy.queue_free()
+	if fly:
+		(toy as CollisionObject3D).collision_layer = 0
+		if toy is RigidBody3D:
+			(toy as RigidBody3D).freeze = true
+		var tween := toy.create_tween()
+		tween.tween_property(toy, "global_position", head.global_position + Vector3.DOWN * 0.4, 0.2)
+		tween.tween_callback(toy.queue_free)
+	else:
+		toy.queue_free()
 	loose += 1
 	if loose >= Toys.BOX_SIZE:
 		boxes.append(held_type)
