@@ -142,6 +142,10 @@ func _build_menu() -> void:
 	_menu.set_anchors_preset(Control.PRESET_CENTER)
 	_menu.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_menu.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var background := StyleBoxFlat.new()
+	background.bg_color = Color(0.1, 0.12, 0.16, 0.97)
+	background.set_corner_radius_all(10)
+	_menu.add_theme_stylebox_override("panel", background)
 	add_child(_menu)
 
 	var margin := MarginContainer.new()

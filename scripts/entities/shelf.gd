@@ -140,6 +140,10 @@ func _celebrate() -> void:
 	var mesh := BoxMesh.new()
 	mesh.size = Vector3.ONE * 0.08
 	particles.mesh = mesh
+	var spark := StandardMaterial3D.new()
+	spark.albedo_color = Color(1.0, 0.85, 0.2)
+	spark.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	particles.material_override = spark
 	particles.one_shot = true
 	particles.amount = 48
 	particles.lifetime = 1.2

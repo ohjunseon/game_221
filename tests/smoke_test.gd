@@ -52,7 +52,7 @@ func _ready() -> void:
 		player.carried = 1
 		if not player.try_place(shelf, posture):
 			break
-	_check(shelf.is_full() and GameState.total_sorted == 100, "첫 선반 100개 완성")
+	_check(shelf.is_full() and GameState.total_sorted == shelf.capacity(), "첫 선반 완성")
 	_check(postures_used.size() == 3, "세 자세 모두 사용")
 	_check(GameState.skill_points == 1, "선반 완성 시 스킬 포인트 1")
 	player.carried = 1
@@ -74,13 +74,13 @@ func _ready() -> void:
 		GameState.upgrade("bundle")
 	_check(GameState.level("bundle") == 10, "레벨 한계 10 (실제 %d)" % GameState.level("bundle"))
 	_check(GameState.breakthrough("bundle") and GameState.cap("bundle") == 20, "한계 돌파로 20")
-	_check(player.carry_capacity() == 3, "큰 손 Lv1: 3개 들기")
-	player.carried = 3
+	_check(player.carry_capacity() == 2, "큰 손 Lv1: 2개 들기")
+	player.carried = 2
 	var before := GameState.total_sorted
 	player.try_place(second, Shelf.Posture.STAND)
 	_check(
-		GameState.total_sorted - before == 3 * Skills.bundle(10),
-		"묶음 Lv10: 3개가 %d개로 계산" % (3 * Skills.bundle(10))
+		GameState.total_sorted - before == 2 * Skills.bundle(10),
+		"묶음 Lv10: 2개가 %d개로 계산" % (2 * Skills.bundle(10))
 	)
 
 	# 창고 해금, 문, 와르르

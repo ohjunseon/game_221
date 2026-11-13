@@ -12,7 +12,7 @@ const CROUCH_LERP_SPEED := 10.0
 ## 1: 바닥·선반·문, 2: 장난감
 const RAY_MASK := 3
 const COMBO_WINDOW := 3.0
-const ARM_REST := Vector3(0.28, -0.3, -0.45)
+const ARM_REST := Vector3(0.32, -0.42, -0.55)
 
 const ACTIONS := {
 	"move_forward": KEY_W,
@@ -265,7 +265,7 @@ func _build_arms() -> void:
 	var skin := StandardMaterial3D.new()
 	skin.albedo_color = Color(0.95, 0.78, 0.62)
 	var arm_mesh := BoxMesh.new()
-	arm_mesh.size = Vector3(0.1, 0.1, 0.5)
+	arm_mesh.size = Vector3(0.09, 0.09, 0.45)
 	for side: float in [-1.0, 1.0]:
 		var arm := MeshInstance3D.new()
 		arm.mesh = arm_mesh
