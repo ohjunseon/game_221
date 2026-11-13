@@ -1,9 +1,14 @@
 extends Node
 ## user://save.json 저장·불러오기. 30초마다, 그리고 종료 시 자동 저장한다.
+## 불러올 때 자동 정리 스킬이 있으면 오프라인 보상을 계산한다.
 
 const SAVE_PATH := "user://save.json"
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 const AUTOSAVE_INTERVAL := 30.0
+const OFFLINE_MIN_SECONDS := 60
+
+## 테스트에서 실제 저장 파일을 건드리지 않도록 끌 수 있다.
+var enabled: bool = true
 
 
 func _ready() -> void:
@@ -21,6 +26,8 @@ func _notification(what: int) -> void:
 
 
 func save_game() -> void:
+	if not enabled:
+		return
 	var data := GameState.to_dict()
 	data["version"] = SAVE_VERSION
 	data["saved_at"] = int(Time.get_unix_time_from_system())
@@ -41,5 +48,20 @@ func load_game() -> void:
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
 	if parsed is Dictionary:
 		GameState.from_dict(parsed)
+		apply_offline_reward(int(Time.get_unix_time_from_system()))
 	else:
 		push_error("저장 파일이 손상되었습니다: %s" % SAVE_PATH)
+
+
+## 꺼져 있던 시간만큼 자동 정리 수입의 일부를 지급한다.
+func apply_offline_reward(now: int) -> int:
+	var rate := GameState.auto_rate()
+	if GameState.saved_at <= 0 or rate <= 0.0:
+		return 0
+	var elapsed := mini(now - GameState.saved_at, GameState.OFFLINE_MAX_SECONDS)
+	if elapsed < OFFLINE_MIN_SECONDS:
+		return 0
+	var amount := int(rate * elapsed * GameState.OFFLINE_EFFICIENCY)
+	var stored := GameState.auto_store(amount)
+	GameState.offline_report = {"seconds": elapsed, "stored": stored}
+	return stored

@@ -14,6 +14,8 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 
 EventBus="*res://scripts/autoload/event_bus.gd"
 GameState="*res://scripts/autoload/game_state.gd"
+Sfx="*res://scripts/autoload/sfx.gd"
+QuestManager="*res://scripts/autoload/quest_manager.gd"
 SaveManager="*res://scripts/autoload/save_manager.gd"
 
 [display]
