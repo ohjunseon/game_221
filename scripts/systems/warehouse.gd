@@ -1,24 +1,28 @@
 class_name Warehouse
 extends Node3D
-## 창고 한 동: 벽, 문, 2개 층(경사로), 층마다 선반 10개, 바닥에 흩어진 장난감.
+## 창고 한 동: 벽, 문, 2개 층(뒷벽 경사로), 층마다 양쪽 벽에 선반 5개씩, 바닥에 흩어진 장난감.
 ## 문은 로컬 +Z 방향에 있다.
 
-const WIDTH := 30.0
-const DEPTH := 24.0
+const WIDTH := 18.0
+const DEPTH := 14.0
 const WALL_HEIGHT := 8.0
 const FLOOR_HEIGHT := 4.0
 const DOOR_WIDTH := 4.0
 const DOOR_HEIGHT := 3.5
 const WALL_THICKNESS := 0.4
 const SLAB_THICKNESS := 0.3
-const RAMP_X := 13.0
-const RAMP_WIDTH := 4.0
-const RAMP_Z_TOP := -3.0
-const RAMP_Z_BOTTOM := 9.0
-const SHELF_SPACING := 2.8
-const TOY_TARGET := 100
-const TOY_SIZE := 0.25
+## 경사로: 뒷벽을 따라 +X(아래)에서 -X(위)로 올라간다
+const RAMP_HALF_RUN := 5.0
+const RAMP_DEPTH := 2.5
+const SHELF_SPACING := 2.2
+const SHELF_FIRST_Z := 3.6
+const SHELVES_PER_SIDE := 5
+const TOY_TARGET := 90
+const TOY_COLLIDER := 0.3
 const TOY_LAYER := 2
+const SPAWN_HALF_X := 6.5
+const SPAWN_Z_MIN := -3.5
+const SPAWN_Z_MAX := 6.0
 const WALL_COLORS := {
 	1: Color(0.55, 0.68, 0.85),
 	2: Color(0.6, 0.8, 0.6),
@@ -26,8 +30,6 @@ const WALL_COLORS := {
 	4: Color(0.85, 0.55, 0.6),
 }
 
-static var _toy_meshes: Array[Mesh] = []
-static var _toy_materials: Array[StandardMaterial3D] = []
 static var _toy_shape: BoxShape3D
 
 var warehouse_id: int = 1
@@ -42,9 +44,13 @@ var _toy_roots: Array[Node3D] = []
 var _door_tween: Tween
 
 
-## 바닥에 놓이는 장난감 하나. rigid면 물리로 굴러다닌다(와르르용).
-static func make_toy(rigid: bool) -> CollisionObject3D:
-	_ensure_toy_resources()
+## 바닥에 놓이는 장난감 하나. rigid면 물리로 굴러다닌다(와르르용). type이 -1이면 무작위.
+static func make_toy(rigid: bool, type: int = -1) -> CollisionObject3D:
+	if _toy_shape == null:
+		_toy_shape = BoxShape3D.new()
+		_toy_shape.size = Vector3.ONE * TOY_COLLIDER
+	if type < 0:
+		type = Toys.random_type()
 	var body: CollisionObject3D
 	if rigid:
 		body = RigidBody3D.new()
@@ -54,46 +60,14 @@ static func make_toy(rigid: bool) -> CollisionObject3D:
 		body.collision_mask = 0
 	body.collision_layer = TOY_LAYER
 	body.add_to_group("toy")
-	var color_index := randi() % Shelf.PALETTE.size()
-	body.set_meta("color", Shelf.PALETTE[color_index])
+	body.set_meta("toy_type", type)
 
 	var shape := CollisionShape3D.new()
 	shape.shape = _toy_shape
+	shape.position.y = TOY_COLLIDER / 2.0
 	body.add_child(shape)
-
-	var mesh := MeshInstance3D.new()
-	mesh.mesh = _toy_meshes[randi() % _toy_meshes.size()]
-	mesh.material_override = _toy_materials[color_index]
-	body.add_child(mesh)
+	body.add_child(Toys.make_visual(type))
 	return body
-
-
-static func _ensure_toy_resources() -> void:
-	if _toy_shape != null:
-		return
-	_toy_shape = BoxShape3D.new()
-	_toy_shape.size = Vector3.ONE * TOY_SIZE
-
-	var box := BoxMesh.new()
-	box.size = Vector3.ONE * TOY_SIZE
-	var ball := SphereMesh.new()
-	ball.radius = TOY_SIZE * 0.55
-	ball.height = TOY_SIZE * 1.1
-	ball.radial_segments = 6
-	ball.rings = 3
-	var can := CylinderMesh.new()
-	can.top_radius = TOY_SIZE * 0.35
-	can.bottom_radius = TOY_SIZE * 0.5
-	can.height = TOY_SIZE
-	can.radial_segments = 6
-	var prism := PrismMesh.new()
-	prism.size = Vector3.ONE * TOY_SIZE
-	_toy_meshes = [box, ball, can, prism]
-
-	for color in Shelf.PALETTE:
-		var material := StandardMaterial3D.new()
-		material.albedo_color = color
-		_toy_materials.append(material)
 
 
 func _ready() -> void:
@@ -199,9 +173,9 @@ func _refill() -> void:
 		for i in TOY_TARGET - alive:
 			var toy := make_toy(false)
 			toy.position = Vector3(
-				randf_range(-13.0, 10.0),
-				floor_index * FLOOR_HEIGHT + TOY_SIZE / 2.0,
-				randf_range(-7.0, 9.0)
+				randf_range(-SPAWN_HALF_X, SPAWN_HALF_X),
+				floor_index * FLOOR_HEIGHT,
+				randf_range(SPAWN_Z_MIN, SPAWN_Z_MAX)
 			)
 			toy.rotation.y = randf() * TAU
 			root.add_child(toy)
@@ -232,57 +206,63 @@ func _build_shell() -> void:
 func _build_upper_floor() -> void:
 	var slab := _material(Color(0.5, 0.52, 0.56))
 	var slab_y := FLOOR_HEIGHT - SLAB_THICKNESS / 2.0
-	var ramp_left := RAMP_X - RAMP_WIDTH / 2.0
-	var ramp_right := RAMP_X + RAMP_WIDTH / 2.0
-	# 경사로 구멍을 뺀 2층 바닥
-	var main_width := ramp_left + WIDTH / 2.0
+	var ramp_front_z := -DEPTH / 2.0 + RAMP_DEPTH
+	var ramp_center_z := -DEPTH / 2.0 + RAMP_DEPTH / 2.0
+	# 경사로 구멍을 뺀 2층 바닥: 앞쪽 큰 판 + 뒷벽 양쪽 모서리
+	var main_depth := DEPTH / 2.0 - ramp_front_z
 	_box(
-		Vector3(main_width, SLAB_THICKNESS, DEPTH),
-		Vector3(-WIDTH / 2.0 + main_width / 2.0, slab_y, 0.0),
+		Vector3(WIDTH, SLAB_THICKNESS, main_depth),
+		Vector3(0.0, slab_y, ramp_front_z + main_depth / 2.0),
 		slab
 	)
-	var back_depth := RAMP_Z_TOP + DEPTH / 2.0
-	_box(
-		Vector3(ramp_right - ramp_left, SLAB_THICKNESS, back_depth),
-		Vector3(RAMP_X, slab_y, -DEPTH / 2.0 + back_depth / 2.0),
-		slab
-	)
+	var corner_width := WIDTH / 2.0 - RAMP_HALF_RUN
+	for side: float in [-1.0, 1.0]:
+		_box(
+			Vector3(corner_width, SLAB_THICKNESS, RAMP_DEPTH),
+			Vector3(side * (RAMP_HALF_RUN + corner_width / 2.0), slab_y, ramp_center_z),
+			slab
+		)
 
-	var run := RAMP_Z_BOTTOM - RAMP_Z_TOP
+	var run := RAMP_HALF_RUN * 2.0
 	var ramp := _box(
-		Vector3(RAMP_WIDTH, SLAB_THICKNESS, sqrt(run * run + FLOOR_HEIGHT * FLOOR_HEIGHT)),
-		Vector3(RAMP_X, FLOOR_HEIGHT / 2.0 - SLAB_THICKNESS / 2.0, (RAMP_Z_TOP + RAMP_Z_BOTTOM) / 2.0),
+		Vector3(sqrt(run * run + FLOOR_HEIGHT * FLOOR_HEIGHT), SLAB_THICKNESS, RAMP_DEPTH),
+		Vector3(0.0, FLOOR_HEIGHT / 2.0 - SLAB_THICKNESS / 2.0, ramp_center_z),
 		_material(Color(0.85, 0.7, 0.2))
 	)
-	ramp.rotation.x = atan2(FLOOR_HEIGHT, run)
+	ramp.rotation.z = -atan2(FLOOR_HEIGHT, run)
 
 	_gate = _box(
-		Vector3(RAMP_WIDTH, 2.2, 0.2),
-		Vector3(RAMP_X, 1.1, RAMP_Z_BOTTOM + 0.3),
+		Vector3(0.2, 2.2, RAMP_DEPTH),
+		Vector3(RAMP_HALF_RUN + 0.3, 1.1, ramp_center_z),
 		_material(Color(0.8, 0.25, 0.25))
 	)
 	var gate_label := Label3D.new()
 	gate_label.text = "1층을 모두 정리하면\n2층이 열립니다"
 	gate_label.font_size = 48
-	gate_label.pixel_size = 0.006
-	gate_label.position = Vector3(0.0, 0.2, 0.12)
+	gate_label.pixel_size = 0.005
+	gate_label.position = Vector3(0.12, 0.2, 0.0)
+	gate_label.rotation.y = PI / 2.0
 	_gate.add_child(gate_label)
 
 
+## 선반 0~4는 왼쪽 벽, 5~9는 오른쪽 벽. 문에 가까운 쪽부터 작은 선반이다.
 func _build_shelves() -> void:
-	var start_x := -SHELF_SPACING * (GameState.SHELVES_PER_FLOOR - 1) / 2.0
 	for floor_index in GameState.FLOORS_PER_WAREHOUSE:
 		for shelf_index in GameState.SHELVES_PER_FLOOR:
+			var on_left := shelf_index < SHELVES_PER_SIDE
+			var slot := shelf_index % SHELVES_PER_SIDE
 			var shelf := Shelf.new()
 			shelf.name = "Shelf_%d_%d" % [floor_index + 1, shelf_index + 1]
 			shelf.warehouse_id = warehouse_id
 			shelf.floor_index = floor_index
 			shelf.shelf_index = shelf_index
 			shelf.position = Vector3(
-				start_x + SHELF_SPACING * shelf_index,
+				(-1.0 if on_left else 1.0) * (WIDTH / 2.0 - 0.7),
 				floor_index * FLOOR_HEIGHT,
-				-DEPTH / 2.0 + 0.7
+				SHELF_FIRST_Z - SHELF_SPACING * slot
 			)
+			# 선반 앞면(로컬 +Z)이 창고 안쪽을 보게 한다
+			shelf.rotation.y = PI / 2.0 if on_left else -PI / 2.0
 			add_child(shelf)
 			shelves.append(shelf)
 
@@ -316,11 +296,11 @@ func _build_signs() -> void:
 
 
 func _build_lights() -> void:
-	for x: float in [-9.0, 0.0, 9.0]:
+	for x: float in [-WIDTH / 4.0, WIDTH / 4.0]:
 		var light := OmniLight3D.new()
-		light.position = Vector3(x, FLOOR_HEIGHT - 0.8, 0.0)
-		light.omni_range = 16.0
-		light.light_energy = 1.5
+		light.position = Vector3(x, FLOOR_HEIGHT - 0.8, 1.0)
+		light.omni_range = 14.0
+		light.light_energy = 1.8
 		add_child(light)
 
 

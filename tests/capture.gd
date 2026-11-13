@@ -22,13 +22,32 @@ func _ready() -> void:
 	for i in 3:
 		GameState.store_in_shelf(1, 0, i, 10_000)
 	GameState.store_in_shelf(1, 0, 3, 700)
-	_look_from(Vector3(-7.0, 0.9, -46.0), 0.35, -0.05)
+	_look_from(Vector3(1.0, 0.9, -23.0), PI / 2.0 - 0.35, -0.05)
 	await _wait(20)
 	await _shot("2_shelves")
 
+	# 바닥의 장난감 형태와 손에 든 장난감·박스
+	# 큰 손을 배워 박스 2개까지: 한 형태 4개로 박스를 만들고, 다른 형태 2개를 모으는 중
+	GameState.learn("big_hands")
+	var by_type := {}
+	for toy: Node3D in get_tree().get_nodes_in_group("toy"):
+		var type: int = toy.get_meta("toy_type")
+		if not by_type.has(type):
+			by_type[type] = []
+		by_type[type].append(toy)
+	var types := by_type.keys()
+	types.sort_custom(func(a: int, b: int) -> bool: return by_type[a].size() > by_type[b].size())
+	for i in Toys.BOX_SIZE:
+		_player.try_pick(by_type[types[0]][i])
+	for i in 2:
+		_player.try_pick(by_type[types[1]][i])
+	_look_from(Vector3(0.0, 0.9, -21.0), 0.0, -0.55)
+	await _wait(10)
+	await _shot("2b_toys")
+
 	# 스킬 메뉴
 	GameState.learn("bundle")
-	GameState.learn("long_arm")
+	GameState.learn("auto_sort")
 	GameState.add_coins(500)
 	_main.get_node("HUD")._set_menu_open(true)
 	await _wait(10)
@@ -36,13 +55,13 @@ func _ready() -> void:
 	_main.get_node("HUD")._set_menu_open(false)
 
 	# 2층으로 가는 경사로와 문 쪽
-	_look_from(Vector3(6.0, 0.9, -34.0), -1.0, 0.1)
+	_look_from(Vector3(4.0, 0.9, -21.5), 0.25, 0.15)
 	await _wait(10)
 	await _shot("4_ramp")
 
 	# 와르르
 	GameState.auto_store(10_000)
-	_look_from(Vector3(-8.0, 0.9, 6.0), PI / 2.0 + 0.5, 0.0)
+	_look_from(Vector3(-4.0, 0.9, 5.0), PI / 2.0 + 0.3, 0.0)
 	await _wait(90)
 	await _shot("5_wareureu")
 

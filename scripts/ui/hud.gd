@@ -100,10 +100,7 @@ func _refresh() -> void:
 	_skill_label.modulate = Color(1.0, 0.9, 0.3) if GameState.skill_points > 0 else Color.WHITE
 	var player := get_tree().get_first_node_in_group("player")
 	if player != null:
-		_carry_label.text = "들고 있는 장난감 %d / %d (묶음 ×%s)" % [
-			player.carried, player.carry_capacity(),
-			Skills.fmt(Skills.bundle(GameState.level("bundle")))
-		]
+		_carry_label.text = player.carry_text()
 	_quest_label.text = QuestManager.text()
 	_progress.value = GameState.total_sorted
 	if GameState.menu_open:

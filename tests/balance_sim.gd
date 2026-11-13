@@ -4,8 +4,12 @@ extends Node
 ## 실행: <godot> --headless --path . res://tests/balance.tscn
 
 const MAX_SECONDS := 60 * 3600
-const WALK_SECONDS := 3.5
+const WALK_SECONDS := 2.5
 const CLICK_SECONDS := 0.5
+## 같은 형태의 다음 장난감까지 걸어가는 시간
+const SEARCH_SECONDS := 0.6
+## 바닥 1㎡당 같은 형태 장난감 수 (90개 / 6종 / 약 124㎡)
+const SAME_TYPE_DENSITY := 0.12
 const POSTURE_SECONDS := 0.6
 const MILESTONES: Array[int] = [100, 1000, 5000, 10000, 100000, 1000000, 5000000, 10000000]
 const LEARN_ORDER: Array[String] = [
@@ -63,11 +67,16 @@ func _manual_rate() -> float:
 	var interval := Skills.repeat_interval(_level("quick_hands"))
 	if interval > 0.0:
 		click = interval
-	var picks := ceilf(float(carry) / (1.0 + _level("magnet")))
-	var cycle := WALK_SECONDS / Skills.speed_mult(_level("sprint")) + picks * click + click
+	# 박스 하나에 같은 형태 장난감 BOX_SIZE개를 집어야 한다
+	# 자석은 같은 형태만 끌어온다: 반경 안에 있을 같은 형태 장난감 수로 추정
+	var radius := Skills.magnet_radius(_level("magnet"))
+	var extra := minf(Toys.BOX_SIZE - 1.0, PI * radius * radius * SAME_TYPE_DENSITY)
+	var picks := ceilf(float(carry * Toys.BOX_SIZE) / (1.0 + extra))
+	var speed := Skills.speed_mult(_level("sprint"))
+	var cycle := (WALK_SECONDS + picks * SEARCH_SECONDS) / speed + picks * click + click
 	if _level("long_arm") <= 0:
 		cycle += POSTURE_SECONDS
-	return carry * Skills.bundle(_level("bundle")) / cycle
+	return carry * Toys.BOX_SIZE * Skills.bundle(_level("bundle")) / cycle
 
 
 func _manual_coin_mult() -> float:

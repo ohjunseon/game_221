@@ -1,7 +1,7 @@
 extends Node3D
 ## 물류센터 전체: 마당, 창고 4동, 소품, "와르르" 이벤트.
 
-const WAREHOUSE_DISTANCE := 40.0
+const WAREHOUSE_DISTANCE := 26.0
 const GROUND_SIZE := 220.0
 const WAREUREU_TOYS := 240
 const WAREUREU_PER_FRAME := 3
@@ -65,9 +65,9 @@ func _build_ground() -> void:
 	)
 	# 노란 차선
 	for i in 4:
-		var line := _box(Vector3(0.3, 0.02, 24.0), Vector3(0.0, 0.01, -14.0), Color(0.95, 0.8, 0.2), false)
+		var line := _box(Vector3(0.3, 0.02, 14.0), Vector3(0.0, 0.01, -10.0), Color(0.95, 0.8, 0.2), false)
 		line.rotation.y = i * PI / 2.0
-		line.position = Vector3(0.0, 0.01, -14.0).rotated(Vector3.UP, i * PI / 2.0)
+		line.position = Vector3(0.0, 0.01, -10.0).rotated(Vector3.UP, i * PI / 2.0)
 
 
 func _build_warehouses() -> void:

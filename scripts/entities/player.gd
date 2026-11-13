@@ -24,17 +24,21 @@ const ACTIONS := {
 }
 
 var is_crouching := false
-## 들고 있는 장난감 수
-var carried: int = 0
-var held_color := Color.WHITE
+## 지금 모으는 장난감 형태 (-1이면 없음)와 모은 개수 (0~3)
+var held_type: int = -1
+var loose: int = 0
+## 완성해서 들고 있는 박스들의 장난감 형태
+var boxes: Array[int] = []
 
 var _aim_text := ""
 var _repeat_timer := 0.0
 var _combo: int = 0
 var _last_place_time := -100.0
 var _shake := 0.0
-var _held_visual: MeshInstance3D
-var _held_material: StandardMaterial3D
+var _held_toy: Node3D
+var _held_toy_type: int = -1
+var _held_box: MeshInstance3D
+var _left_arm: MeshInstance3D
 var _right_arm: MeshInstance3D
 var _arm_tween: Tween
 
@@ -109,35 +113,46 @@ func carry_capacity() -> int:
 	return Skills.carry(GameState.level("big_hands"))
 
 
-## 장난감을 집는다. 자석 스킬이 있으면 주변 것도 함께 집는다.
+## 장난감을 집는다. 한 번에 한 형태만 모을 수 있고, 같은 형태 4개가 모이면 박스가 된다.
+## 자석 스킬이 있으면 주변의 같은 형태도 함께 집는다.
 func try_pick(toy: Node3D, quiet: bool = false) -> bool:
 	var capacity := carry_capacity()
-	if carried >= capacity:
+	if boxes.size() >= capacity:
 		if not quiet:
-			EventBus.message_shown.emit("손이 가득 찼습니다. 선반에 넣으세요")
+			EventBus.message_shown.emit("박스를 더 들 수 없습니다. 선반에 넣으세요")
+		return false
+	var type: int = toy.get_meta("toy_type", 0)
+	if loose > 0 and type != held_type:
+		if not quiet:
+			EventBus.message_shown.emit("지금은 %s만 모을 수 있습니다 (%d/%d)" % [
+				Toys.NAMES[held_type], loose, Toys.BOX_SIZE
+			])
+			Sfx.play("error")
 		return false
 	var center := toy.global_position
 	_take(toy)
 	var radius := Skills.magnet_radius(GameState.level("magnet"))
 	if radius > 0.0:
 		for other: Node3D in get_tree().get_nodes_in_group("toy"):
-			if carried >= capacity:
+			if boxes.size() >= capacity:
 				break
-			if other.is_queued_for_deletion():
+			if other.is_queued_for_deletion() or int(other.get_meta("toy_type", -1)) != type:
 				continue
 			if other.global_position.distance_to(center) <= radius:
 				_take(other)
-	Sfx.play("pick", 1.0 + 0.03 * carried)
+	Sfx.play("pick", 1.0 + 0.08 * loose)
 	_punch_arm()
-	_set_carried(carried)
+	_refresh_hands()
 	return true
 
 
-## 들고 있는 장난감을 선반의 현재 단에 넣는다. 긴 팔 스킬이 없으면 자세가 맞아야 한다.
+## 들고 있는 박스를 선반의 현재 단에 넣는다. 긴 팔 스킬이 없으면 자세가 맞아야 한다.
 func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> bool:
-	if carried <= 0:
+	if boxes.is_empty():
 		if not quiet:
-			EventBus.message_shown.emit("먼저 장난감을 주우세요")
+			EventBus.message_shown.emit(
+				"먼저 박스를 만드세요 (같은 장난감 %d개)" % Toys.BOX_SIZE
+			)
 		return false
 	if shelf.is_full():
 		if not quiet:
@@ -160,9 +175,11 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 	if is_crit:
 		coin_mult *= Skills.CRIT_MULTIPLIER
 
-	var bundle := Skills.bundle(GameState.level("bundle"))
-	var accepted := shelf.add(carried * bundle, coin_mult, held_color)
-	_set_carried(carried - ceili(float(accepted) / bundle))
+	var per_box := Toys.BOX_SIZE * Skills.bundle(GameState.level("bundle"))
+	var accepted := shelf.add(boxes.size() * per_box, coin_mult, boxes[-1])
+	for i in mini(ceili(float(accepted) / per_box), boxes.size()):
+		boxes.pop_back()
+	_refresh_hands()
 
 	var popup := "+%s" % Skills.fmt(accepted)
 	if is_crit:
@@ -228,18 +245,45 @@ func _update_aim_text() -> void:
 		EventBus.aim_text_changed.emit(text)
 
 
+## HUD에 보여 줄 손 상태
+func carry_text() -> String:
+	var text := "박스 %d / %d" % [boxes.size(), carry_capacity()]
+	if loose > 0:
+		text += "   모으는 중: %s %d / %d" % [Toys.NAMES[held_type], loose, Toys.BOX_SIZE]
+	else:
+		text += "   같은 장난감 %d개 = 박스 1개" % Toys.BOX_SIZE
+	return text
+
+
 func _take(toy: Node3D) -> void:
-	held_color = toy.get_meta("color", Color.WHITE)
+	held_type = toy.get_meta("toy_type", 0)
 	toy.remove_from_group("toy")
 	toy.queue_free()
-	carried += 1
+	loose += 1
+	if loose >= Toys.BOX_SIZE:
+		boxes.append(held_type)
+		loose = 0
+		held_type = -1
+		EventBus.popup_requested.emit("박스 완성!")
+		Sfx.play("buy")
 
 
-func _set_carried(value: int) -> void:
-	carried = maxi(value, 0)
-	_held_visual.visible = carried > 0
-	_held_material.albedo_color = held_color
-	EventBus.carried_changed.emit(carried, carry_capacity())
+## 오른손에는 모으는 장난감, 왼손에는 완성한 박스를 보여 준다.
+func _refresh_hands() -> void:
+	if _held_toy_type != held_type:
+		if _held_toy != null:
+			_held_toy.queue_free()
+			_held_toy = null
+		_held_toy_type = held_type
+		if held_type >= 0:
+			_held_toy = Toys.make_visual(held_type)
+			_held_toy.scale = Vector3.ONE * 0.6
+			_held_toy.position = Vector3(0.0, 0.05, -0.28)
+			_right_arm.add_child(_held_toy)
+	_held_box.visible = not boxes.is_empty()
+	if not boxes.is_empty():
+		Toys.set_box_type(_held_box, boxes[-1])
+	EventBus.carried_changed.emit(boxes.size(), carry_capacity())
 
 
 func _update_shake(delta: float) -> void:
@@ -275,16 +319,13 @@ func _build_arms() -> void:
 		camera.add_child(arm)
 		if side > 0.0:
 			_right_arm = arm
+		else:
+			_left_arm = arm
 
-	var toy_mesh := BoxMesh.new()
-	toy_mesh.size = Vector3.ONE * 0.16
-	_held_material = StandardMaterial3D.new()
-	_held_visual = MeshInstance3D.new()
-	_held_visual.mesh = toy_mesh
-	_held_visual.material_override = _held_material
-	_held_visual.position = Vector3(0.0, 0.1, -0.3)
-	_held_visual.visible = false
-	_right_arm.add_child(_held_visual)
+	_held_box = Toys.make_box(0, 0.2)
+	_held_box.position = Vector3(0.0, 0.14, -0.2)
+	_held_box.visible = false
+	_left_arm.add_child(_held_box)
 
 
 func _ensure_actions() -> void:

@@ -32,7 +32,7 @@ var _highlight: MeshInstance3D
 var _label: Label3D
 var _toy_mesh: BoxMesh
 var _visuals: Array[MeshInstance3D] = []
-var _pending_color: Color = Color(0, 0, 0, 0)
+var _pending_type: int = -1
 var _celebrated: bool = false
 
 
@@ -82,12 +82,13 @@ func current_tier() -> int:
 
 
 ## 장난감을 넣고 실제로 들어간 개수를 돌려준다.
-func add(amount: int, coin_mult: float = 1.0, color: Color = Color(0, 0, 0, 0)) -> int:
-	_pending_color = color
+## toy_type: 선반에 보일 박스의 장난감 형태 (-1이면 무작위)
+func add(amount: int, coin_mult: float = 1.0, toy_type: int = -1) -> int:
+	_pending_type = toy_type
 	var accepted := GameState.store_in_shelf(
 		warehouse_id, floor_index, shelf_index, amount, coin_mult
 	)
-	_pending_color = Color(0, 0, 0, 0)
+	_pending_type = -1
 	return accepted
 
 
@@ -121,10 +122,8 @@ func _add_toy_visual(index: int) -> void:
 	@warning_ignore("integer_division")
 	var tier := index / SLOTS_PER_TIER
 	var slot := index % SLOTS_PER_TIER
-	var color := _pending_color if _pending_color.a > 0.0 else PALETTE[randi() % PALETTE.size()]
-	var toy := MeshInstance3D.new()
-	toy.mesh = _toy_mesh
-	toy.material_override = _material_for(color)
+	var type := _pending_type if _pending_type >= 0 else Toys.random_type()
+	var toy := Toys.make_box(type, TOY_VISUAL_SIZE)
 	var slot_width := (WIDTH - 0.1) / SLOTS_PER_TIER
 	toy.position = Vector3(
 		-WIDTH / 2.0 + 0.05 + slot_width * (slot + 0.5),

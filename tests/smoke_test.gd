@@ -34,36 +34,58 @@ func _ready() -> void:
 	_check(Shelf.required_posture(8) == Shelf.Posture.STAND, "8단 서서")
 	_check(Shelf.required_posture(9) == Shelf.Posture.JUMP, "9단 점프")
 
-	# 줍기와 자세 규칙
+	# 박스 조합: 같은 형태 4개가 박스 1개
+	var by_type := {}
+	for toy in toys:
+		var type: int = toy.get_meta("toy_type")
+		if not by_type.has(type):
+			by_type[type] = []
+		by_type[type].append(toy)
+	var type_a := -1
+	var type_b := -1
+	for type: int in by_type:
+		if type_a < 0 and by_type[type].size() >= 5:
+			type_a = type
+		elif type_b < 0:
+			type_b = type
+	_check(type_a >= 0 and type_b >= 0, "장난감 형태가 2종 이상이고 한 종은 5개 이상")
+	_check(Toys.count() == 6 and Toys.BOX_SIZE == 4, "장난감 6종, 박스당 4개")
+
 	var shelf := warehouses[0].shelves[0]
-	_check(not player.try_place(shelf, Shelf.Posture.CROUCH), "빈손으로는 넣기 불가")
-	_check(player.try_pick(toys[0]), "줍기")
-	_check(not player.try_pick(toys[1]), "큰 손 없이는 1개만 들 수 있음")
+	_check(not player.try_place(shelf, Shelf.Posture.CROUCH), "박스 없이는 넣기 불가")
+	_check(player.try_pick(by_type[type_a][0]), "줍기")
+	_check(player.loose == 1 and player.held_type == type_a, "모으는 중 1/4")
+	_check(not player.try_place(shelf, Shelf.Posture.CROUCH), "장난감 1개로는 넣기 불가")
+	_check(not player.try_pick(by_type[type_b][0]), "다른 형태는 집을 수 없음")
+	for i in range(1, 4):
+		player.try_pick(by_type[type_a][i])
+	_check(player.boxes.size() == 1 and player.loose == 0, "같은 형태 4개 → 박스 1개")
+	_check(not player.try_pick(by_type[type_a][4]), "큰 손 없이는 박스 1개만 들 수 있음")
 	_check(not player.try_place(shelf, Shelf.Posture.STAND), "1단은 서서 넣기 불가")
 	_check(player.try_place(shelf, Shelf.Posture.CROUCH), "1단 웅크리고 넣기")
-	_check(GameState.total_sorted == 1 and GameState.coins >= 1, "정리 1, 코인 획득")
-	_check(player.carried == 0, "넣은 뒤 빈손")
+	_check(GameState.total_sorted == 4 and GameState.coins >= 4, "박스 1개 = 4개 정리")
+	_check(player.boxes.is_empty(), "넣은 뒤 빈손")
 
-	# 첫 선반(100개)을 자세에 맞게 채운다
+	# 첫 선반을 자세에 맞게 채운다
 	var postures_used := {}
 	while not shelf.is_full():
 		var posture := Shelf.required_posture(shelf.current_tier())
 		postures_used[posture] = true
-		player.carried = 1
+		player.boxes.append(type_a)
 		if not player.try_place(shelf, posture):
 			break
 	_check(shelf.is_full() and GameState.total_sorted == shelf.capacity(), "첫 선반 완성")
 	_check(postures_used.size() == 3, "세 자세 모두 사용")
 	_check(GameState.skill_points == 1, "선반 완성 시 스킬 포인트 1")
-	player.carried = 1
+	player.boxes.append(type_a)
 	_check(not player.try_place(shelf, Shelf.Posture.JUMP), "완성된 선반에는 넣기 불가")
-	player.carried = 0
+	player.boxes.clear()
 
 	# 스킬: 배우기, 강화, 한계 돌파
 	_check(GameState.learn("long_arm"), "긴 팔 배우기")
 	_check(not GameState.learn("bundle"), "포인트 없이는 못 배움")
 	var second := warehouses[0].shelves[1]
-	player.carried = 1
+	player.boxes.append(type_a)
 	_check(player.try_place(second, Shelf.Posture.STAND), "긴 팔: 1단도 서서 넣기")
 	GameState.skill_points = 3
 	_check(GameState.learn("bundle") and GameState.learn("big_hands"), "스킬 2개 더 배우기")
@@ -74,14 +96,13 @@ func _ready() -> void:
 		GameState.upgrade("bundle")
 	_check(GameState.level("bundle") == 10, "레벨 한계 10 (실제 %d)" % GameState.level("bundle"))
 	_check(GameState.breakthrough("bundle") and GameState.cap("bundle") == 20, "한계 돌파로 20")
-	_check(player.carry_capacity() == 2, "큰 손 Lv1: 2개 들기")
-	player.carried = 2
+	_check(player.carry_capacity() == 2, "큰 손 Lv1: 박스 2개 들기")
+	player.boxes.append(type_a)
+	player.boxes.append(type_b)
 	var before := GameState.total_sorted
-	player.try_place(second, Shelf.Posture.STAND)
-	_check(
-		GameState.total_sorted - before == 2 * Skills.bundle(10),
-		"묶음 Lv10: 2개가 %d개로 계산" % (2 * Skills.bundle(10))
-	)
+	player.try_place(warehouses[0].shelves[2], Shelf.Posture.STAND)
+	var expected := 2 * Toys.BOX_SIZE * Skills.bundle(10)
+	_check(GameState.total_sorted - before == expected, "묶음 Lv10: 박스 2개가 %d개로 계산" % expected)
 
 	# 창고 해금, 문, 와르르
 	_check(not GameState.is_warehouse_unlocked(2), "1,000개 전에는 창고 2 잠김")
