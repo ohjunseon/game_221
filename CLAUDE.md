@@ -14,6 +14,8 @@
 ## 구조
 - `scripts/autoload/`: `EventBus`(시그널), `GameState`(수치·스킬·선반 저장량), `Sfx`(합성 효과음), `QuestManager`, `SaveManager`
 - `scripts/systems/`: `skills.gd`(액션 스킬 4종·업그레이드 4종의 정의와 공식), `toys.gd`(장난감 6종 형태·박스), `warehouse.gd`(창고 한 동), `world.gd`(마당·창고 배치·와르르)
+- `scripts/systems/look.gd`: 공용 재질과 코드로 만든 무늬(`Look.matte/glow/grid/bands/hazard`). 새 재질은 여기서 만든다
+- `assets/`: `fonts/`(Jua, 프로젝트 기본 폰트), `icons/`(Kenney Game Icons), `models/factory/`(Kenney Factory Kit GLB)
 - `scripts/entities/`: `player.gd`, `shelf.gd`
 - `scripts/ui/hud.gd`: HUD, 스킬 슬롯 4칸(1~4 키), 스킬·업그레이드 메뉴(Tab)
 - `scenes/`: 씬 파일. `main.tscn`이 메인 씬. 월드는 코드로 생성한다

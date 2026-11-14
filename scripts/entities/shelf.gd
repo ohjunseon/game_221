@@ -169,7 +169,9 @@ func _build() -> void:
 	shape.position.y = total_height / 2.0
 	add_child(shape)
 
-	var frame_material := _material_for(Color(0.35, 0.42, 0.55))
+	# 물류 랙: 파란 기둥에 밝은 선반 판
+	var frame_material := _material_for(Color(0.96, 0.92, 0.84))
+	var post_material := _material_for(Color(0.3, 0.5, 0.92))
 
 	var board_mesh := BoxMesh.new()
 	board_mesh.size = Vector3(WIDTH, BOARD_THICKNESS, DEPTH)
@@ -181,11 +183,11 @@ func _build() -> void:
 		add_child(board)
 
 	var side_mesh := BoxMesh.new()
-	side_mesh.size = Vector3(0.04, total_height, DEPTH)
+	side_mesh.size = Vector3(0.07, total_height + 0.06, DEPTH + 0.04)
 	for x: float in [-WIDTH / 2.0, WIDTH / 2.0]:
 		var side := MeshInstance3D.new()
 		side.mesh = side_mesh
-		side.material_override = frame_material
+		side.material_override = post_material
 		side.position = Vector3(x, total_height / 2.0, 0.0)
 		add_child(side)
 
@@ -203,6 +205,8 @@ func _build() -> void:
 	_label = Label3D.new()
 	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_label.font_size = 56
+	_label.outline_size = 14
+	_label.outline_modulate = Color(0.1, 0.12, 0.22)
 	_label.pixel_size = 0.004
 	_label.position.y = total_height + 0.25
 	add_child(_label)

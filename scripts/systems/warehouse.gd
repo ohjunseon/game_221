@@ -24,10 +24,10 @@ const SPAWN_HALF_X := 6.5
 const SPAWN_Z_MIN := -3.5
 const SPAWN_Z_MAX := 6.0
 const WALL_COLORS := {
-	1: Color(0.55, 0.68, 0.85),
-	2: Color(0.6, 0.8, 0.6),
-	3: Color(0.9, 0.75, 0.5),
-	4: Color(0.85, 0.55, 0.6),
+	1: Color(0.56, 0.76, 0.96),
+	2: Color(0.6, 0.88, 0.7),
+	3: Color(1.0, 0.82, 0.5),
+	4: Color(0.98, 0.66, 0.74),
 }
 
 static var _toy_shape: BoxShape3D
@@ -136,7 +136,7 @@ func _on_shelf_completed(completed_warehouse: int, _floor_index: int, _shelf_ind
 
 func _refresh() -> void:
 	var unlocked := GameState.is_warehouse_unlocked(warehouse_id)
-	_door_material.albedo_color = Color(0.3, 0.75, 0.4) if unlocked else Color(0.8, 0.25, 0.25)
+	_door_material.albedo_color = Color(0.45, 0.86, 0.56) if unlocked else Color(0.96, 0.46, 0.46)
 	if not unlocked:
 		_status_label.text = "잠김 · %s개 정리 필요" % Skills.fmt(
 			GameState.unlock_threshold(warehouse_id)
@@ -182,8 +182,9 @@ func _refill() -> void:
 
 
 func _build_shell() -> void:
-	var wall := _material(WALL_COLORS.get(warehouse_id, Color(0.7, 0.7, 0.7)))
-	var floor_material := _material(Color(0.62, 0.62, 0.6))
+	var color: Color = WALL_COLORS.get(warehouse_id, Color(0.7, 0.7, 0.7))
+	var wall := Look.grid(color, color.darkened(0.1), 2.0)
+	var floor_material := Look.grid(Color(0.74, 0.7, 0.66), Color(0.64, 0.6, 0.57), 1.0)
 	_box(Vector3(WIDTH + 2.0, 0.2, DEPTH + 2.0), Vector3(0.0, -0.1, 0.0), floor_material)
 
 	var half_h := WALL_HEIGHT / 2.0
@@ -202,9 +203,32 @@ func _build_shell() -> void:
 		wall
 	)
 
+	# 지붕(안쪽은 밝은 천장), 지붕 테두리, 벽 아래·위 띠
+	var cream := Look.matte(Color(0.97, 0.96, 0.92))
+	var dark := Look.matte(color.darkened(0.4))
+	_box(Vector3(WIDTH + 0.4, 0.3, DEPTH + 0.4), Vector3(0.0, WALL_HEIGHT + 0.15, 0.0), cream)
+	_deco(Vector3(WIDTH + 1.2, 0.25, DEPTH + 1.2), Vector3(0.0, WALL_HEIGHT + 0.4, 0.0), dark)
+	_band(0.3, 0.6, dark, false)
+	_band(WALL_HEIGHT - 0.35, 0.5, cream, true)
+
+
+## 벽을 따라 두르는 띠 장식. full_front면 문 위까지 앞면 전체를 두른다.
+func _band(y: float, height: float, material: Material, full_front: bool) -> void:
+	var thickness := WALL_THICKNESS + 0.12
+	_deco(Vector3(WIDTH + 0.12, height, thickness), Vector3(0.0, y, -DEPTH / 2.0), material)
+	for x: float in [-WIDTH / 2.0, WIDTH / 2.0]:
+		_deco(Vector3(thickness, height, DEPTH + 0.12), Vector3(x, y, 0.0), material)
+	if full_front:
+		_deco(Vector3(WIDTH + 0.12, height, thickness), Vector3(0.0, y, DEPTH / 2.0), material)
+		return
+	var side_width := (WIDTH - DOOR_WIDTH) / 2.0
+	var side_x := DOOR_WIDTH / 2.0 + side_width / 2.0
+	for x: float in [-side_x, side_x]:
+		_deco(Vector3(side_width + 0.06, height, thickness), Vector3(x, y, DEPTH / 2.0), material)
+
 
 func _build_upper_floor() -> void:
-	var slab := _material(Color(0.5, 0.52, 0.56))
+	var slab := Look.grid(Color(0.7, 0.72, 0.78), Color(0.6, 0.62, 0.7), 1.0)
 	var slab_y := FLOOR_HEIGHT - SLAB_THICKNESS / 2.0
 	var ramp_front_z := -DEPTH / 2.0 + RAMP_DEPTH
 	var ramp_center_z := -DEPTH / 2.0 + RAMP_DEPTH / 2.0
@@ -227,16 +251,17 @@ func _build_upper_floor() -> void:
 	var ramp := _box(
 		Vector3(sqrt(run * run + FLOOR_HEIGHT * FLOOR_HEIGHT), SLAB_THICKNESS, RAMP_DEPTH),
 		Vector3(0.0, FLOOR_HEIGHT / 2.0 - SLAB_THICKNESS / 2.0, ramp_center_z),
-		_material(Color(0.85, 0.7, 0.2))
+		Look.grid(Color(1.0, 0.84, 0.35), Color(0.92, 0.7, 0.22), 0.5)
 	)
 	ramp.rotation.z = -atan2(FLOOR_HEIGHT, run)
 
 	_gate = _box(
 		Vector3(0.2, 2.2, RAMP_DEPTH),
 		Vector3(RAMP_HALF_RUN + 0.3, 1.1, ramp_center_z),
-		_material(Color(0.8, 0.25, 0.25))
+		Look.hazard(0.8)
 	)
 	var gate_label := Label3D.new()
+	gate_label.outline_size = 16
 	gate_label.text = "1층을 모두 정리하면\n2층이 열립니다"
 	gate_label.font_size = 48
 	gate_label.pixel_size = 0.005
@@ -268,7 +293,8 @@ func _build_shelves() -> void:
 
 
 func _build_door() -> void:
-	_door_material = StandardMaterial3D.new()
+	# 셔터 문: 흰 바탕 무늬에 albedo_color로 초록(열 수 있음)·빨강(잠김)을 입힌다
+	_door_material = Look.bands(Color.WHITE, Color(0.8, 0.8, 0.8), 0.4)
 	_door = _box(
 		Vector3(DOOR_WIDTH, DOOR_HEIGHT, 0.2),
 		Vector3(0.0, DOOR_HEIGHT / 2.0, DEPTH / 2.0),
@@ -277,14 +303,36 @@ func _build_door() -> void:
 	_door.add_to_group("door")
 	_door.set_meta("warehouse", self)
 
+	# 안전 줄무늬 문틀
+	var frame := Look.hazard(0.6)
+	var frame_depth := WALL_THICKNESS + 0.2
+	for x: float in [-DOOR_WIDTH / 2.0 - 0.15, DOOR_WIDTH / 2.0 + 0.15]:
+		_deco(
+			Vector3(0.3, DOOR_HEIGHT + 0.3, frame_depth),
+			Vector3(x, (DOOR_HEIGHT + 0.3) / 2.0, DEPTH / 2.0),
+			frame
+		)
+	_deco(
+		Vector3(DOOR_WIDTH + 0.6, 0.3, frame_depth),
+		Vector3(0.0, DOOR_HEIGHT + 0.15, DEPTH / 2.0),
+		frame
+	)
+
 
 func _build_signs() -> void:
+	# 간판: 흰 테두리 + 창고 색을 어둡게 한 판
+	var color: Color = WALL_COLORS.get(warehouse_id, Color(0.7, 0.7, 0.7))
+	var board_at := Vector3(0.0, DOOR_HEIGHT + 2.4, DEPTH / 2.0 + 0.2)
+	_deco(Vector3(6.4, 2.2, 0.16), board_at, Look.matte(Color(0.97, 0.96, 0.92)))
+	_deco(Vector3(6.0, 1.8, 0.2), board_at, Look.matte(color.darkened(0.45)))
+
 	var title := Label3D.new()
 	title.text = "창고 %d" % warehouse_id
-	title.font_size = 160
-	title.outline_size = 24
-	title.pixel_size = 0.012
-	title.position = Vector3(0.0, DOOR_HEIGHT + 2.4, DEPTH / 2.0 + 0.3)
+	title.font_size = 150
+	title.outline_size = 20
+	title.outline_modulate = Color(0.1, 0.12, 0.22)
+	title.pixel_size = 0.011
+	title.position = Vector3(0.0, DOOR_HEIGHT + 2.4, DEPTH / 2.0 + 0.34)
 	add_child(title)
 
 	_status_label = Label3D.new()
@@ -296,12 +344,18 @@ func _build_signs() -> void:
 
 
 func _build_lights() -> void:
-	for x: float in [-WIDTH / 4.0, WIDTH / 4.0]:
-		var light := OmniLight3D.new()
-		light.position = Vector3(x, FLOOR_HEIGHT - 0.8, 1.0)
-		light.omni_range = 14.0
-		light.light_energy = 1.8
-		add_child(light)
+	# 층마다 천장에 길쭉한 전등 2개
+	var lamp := Look.glow(Color(1.0, 0.96, 0.82), 3.0)
+	for floor_index in GameState.FLOORS_PER_WAREHOUSE:
+		var ceiling := FLOOR_HEIGHT - SLAB_THICKNESS if floor_index == 0 else WALL_HEIGHT
+		for x: float in [-WIDTH / 4.0, WIDTH / 4.0]:
+			_deco(Vector3(0.5, 0.08, 3.0), Vector3(x, ceiling - 0.05, 1.0), lamp)
+			var light := OmniLight3D.new()
+			light.position = Vector3(x, ceiling - 0.8, 1.0)
+			light.omni_range = 10.0
+			light.light_energy = 1.0
+			light.light_color = Color(1.0, 0.95, 0.85)
+			add_child(light)
 
 
 func _box(size: Vector3, at: Vector3, material: Material) -> StaticBody3D:
@@ -322,7 +376,13 @@ func _box(size: Vector3, at: Vector3, material: Material) -> StaticBody3D:
 	return body
 
 
-func _material(color: Color) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	return material
+## 충돌 없는 장식용 상자
+func _deco(size: Vector3, at: Vector3, material: Material) -> MeshInstance3D:
+	var mesh := MeshInstance3D.new()
+	var box_mesh := BoxMesh.new()
+	box_mesh.size = size
+	mesh.mesh = box_mesh
+	mesh.material_override = material
+	mesh.position = at
+	add_child(mesh)
+	return mesh

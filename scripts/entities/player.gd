@@ -343,14 +343,27 @@ func _punch_arm() -> void:
 
 ## 화면에 보이는 두 팔(로우폴리 상자)과 손에 든 장난감
 func _build_arms() -> void:
-	var skin := StandardMaterial3D.new()
-	skin.albedo_color = Color(0.95, 0.78, 0.62)
+	# 파란 작업복 소매, 흰 소맷단, 노란 작업 장갑
 	var arm_mesh := BoxMesh.new()
 	arm_mesh.size = Vector3(0.09, 0.09, 0.45)
+	var cuff_mesh := BoxMesh.new()
+	cuff_mesh.size = Vector3(0.1, 0.1, 0.03)
+	var glove_mesh := BoxMesh.new()
+	glove_mesh.size = Vector3(0.105, 0.095, 0.12)
 	for side: float in [-1.0, 1.0]:
 		var arm := MeshInstance3D.new()
 		arm.mesh = arm_mesh
-		arm.material_override = skin
+		arm.material_override = Look.matte(Color(0.3, 0.55, 0.95))
+		var cuff := MeshInstance3D.new()
+		cuff.mesh = cuff_mesh
+		cuff.material_override = Look.matte(Color(0.97, 0.96, 0.92))
+		cuff.position.z = -0.12
+		arm.add_child(cuff)
+		var glove := MeshInstance3D.new()
+		glove.mesh = glove_mesh
+		glove.material_override = Look.matte(Color(1.0, 0.82, 0.28))
+		glove.position.z = -0.19
+		arm.add_child(glove)
 		arm.position = Vector3(ARM_REST.x * side, ARM_REST.y, ARM_REST.z)
 		arm.rotation = Vector3(deg_to_rad(12.0), deg_to_rad(8.0) * side, 0.0)
 		camera.add_child(arm)

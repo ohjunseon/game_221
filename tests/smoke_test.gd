@@ -115,7 +115,12 @@ func _ready() -> void:
 	GameState.now += 100.0
 
 	# 자석: 켜 두면 주변 장난감이 손으로 들어온다
-	player.global_position = Vector3(0.0, 0.9, -24.0)
+	# 무작위 배치에 기대지 않도록 빈 마당에 같은 형태 4개를 직접 놓는다
+	player.global_position = Vector3(30.0, 0.9, 30.0)
+	for i in Toys.BOX_SIZE:
+		var magnet_toy := Warehouse.make_toy(false, 0)
+		add_child(magnet_toy)
+		magnet_toy.global_position = Vector3(30.5 + 0.3 * i, 0.0, 30.5)
 	await get_tree().physics_frame
 	_check(player.loose == 0 and player.boxes.is_empty(), "자석을 켜기 전에는 저절로 줍지 않음")
 	_check(player.use_skill(0), "1번 키로 자석 발동")
