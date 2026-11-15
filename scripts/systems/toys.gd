@@ -22,6 +22,7 @@ const GOLD := Color(1.0, 0.8, 0.2)
 
 static var _materials: Dictionary = {}
 static var _meshes: Dictionary = {}
+static var _box_meshes: Dictionary = {}
 
 
 static func count() -> int:
@@ -112,6 +113,20 @@ static func make_box(type: int, size: float) -> MeshInstance3D:
 	tape.scale = Vector3(0.2, 1.02, 1.02)
 	box.add_child(tape)
 	return box
+
+
+## 선반에 쌓는 박스 메시: 골판지 몸통, 형태 색 라벨, 테이프를 하나로 합친 것 (크기 1, 형태별로 하나씩 공유)
+static func box_mesh(type: int) -> ArrayMesh:
+	if not _box_meshes.has(type):
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		Look.add_cuboid(st, Vector3.ZERO, Vector3.ONE, CARDBOARD)
+		Look.add_cuboid(st, Vector3(0.0, 0.0, 0.5), Vector3(0.6, 0.6, 0.06), COLORS[type])
+		Look.add_cuboid(st, Vector3.ZERO, Vector3(0.2, 1.02, 1.02), TAPE)
+		var mesh := st.commit()
+		mesh.surface_set_material(0, Look.vertex_color(0.5))
+		_box_meshes[type] = mesh
+	return _box_meshes[type]
 
 
 ## 이미 만든 박스의 라벨을 다른 형태 색으로 바꾼다.

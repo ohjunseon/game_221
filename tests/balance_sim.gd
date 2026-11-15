@@ -1,6 +1,7 @@
 extends Node
 ## 밸런스 시뮬레이션: 계속 플레이하는 가상의 플레이어가 각 목표에 도달하는 시간을 추정한다.
 ## 실제 조작 대신 Skills의 공식과 단순한 이동·클릭 시간 모델을 쓴다.
+## 선반은 모두 박스 100개이고, 박스 1개에 담긴 장난감 수는 묶음 정리 레벨이 정한다.
 ## 실행: <godot> --headless --path . res://tests/balance.tscn
 
 const MAX_SECONDS := 60 * 3600
@@ -20,7 +21,9 @@ var _levels: Dictionary = {}
 var _caps: Dictionary = {}
 var _points: int = 0
 var _coins: float = 0.0
+## 정리한 장난감 수, 정리한 박스 수
 var _total: int = 0
+var _boxes_total: int = 0
 var _stored: Dictionary = {}
 var _unlocked: Array[int] = [1]
 
@@ -30,28 +33,36 @@ func _ready() -> void:
 	var next_milestone := 0
 	var carry_over := 0.0
 	var second := 0
-	while second < MAX_SECONDS and _total < GameState.TOTAL_TOYS:
+	var done := false
+	while second < MAX_SECONDS and not done:
 		second += 1
-		var manual := _manual_rate()
+		var manual := _manual_boxes()
 		# 액션 스킬은 쿨타임이 끝날 때마다 바로 쓴다고 보고 가동률을 곱한다
 		var auto := (
-			Skills.auto_rate(_level("auto_sort"), _level("bundle"))
-			* Skills.uptime("auto_sort", _level("auto_sort"))
+			Skills.auto_boxes(_level("auto_sort")) * Skills.uptime("auto_sort", _level("auto_sort"))
 		)
 		carry_over += manual + auto
-		var amount := int(carry_over)
-		carry_over -= amount
-		var stored := _store(amount)
-		_coins += stored * _coin_mult()
+		var boxes := int(carry_over)
+		carry_over -= boxes
+		var per_box := Toys.BOX_SIZE * Skills.bundle(_level("bundle"))
+		var stored := _store(boxes)
+		_coins += stored * per_box * _coin_mult()
 		_spend()
 		while next_milestone < MILESTONES.size() and _total >= MILESTONES[next_milestone]:
-			print("%10s개: %s  (수동 %.1f/s, 자동 %.1f/s, 묶음 Lv%d, 자동 Lv%d)" % [
-				Skills.fmt(MILESTONES[next_milestone]), _clock(second), manual, auto,
-				_level("bundle"), _level("auto_sort"),
+			print("%10s개: %s  (박스 %s개, 수동 %.2f/s, 자동 %.2f/s, 묶음 Lv%d=%d개/박스, 자동 Lv%d)" % [
+				Skills.fmt(MILESTONES[next_milestone]), _clock(second), Skills.fmt(_boxes_total),
+				manual, auto, _level("bundle"), per_box, _level("auto_sort"),
 			])
 			next_milestone += 1
+		done = _total >= GameState.TOTAL_TOYS or _all_full()
 	if _total < GameState.TOTAL_TOYS:
-		print("미완료: %s 시점에 %s개" % [_clock(second), Skills.fmt(_total)])
+		print("1,000만 개 미달: %s 시점에 %s개 (박스 %s개, 선반 모두 참=%s)" % [
+			_clock(second), Skills.fmt(_total), Skills.fmt(_boxes_total), _all_full()
+		])
+	print("끝: %s, 박스 %s / %s" % [
+		_clock(second), Skills.fmt(_boxes_total),
+		Skills.fmt(GameState.total_shelves() * GameState.BOXES_PER_SHELF)
+	])
 	print("BALANCE DONE")
 	get_tree().quit(0)
 
@@ -60,8 +71,8 @@ func _level(id: String) -> int:
 	return int(_levels.get(id, 0))
 
 
-## 한 번 왕복(줍기 → 걷기 → 넣기)으로 정리하는 초당 개수
-func _manual_rate() -> float:
+## 한 번 왕복(줍기 → 걷기 → 넣기)으로 정리하는 초당 박스 수
+func _manual_boxes() -> float:
 	var carry := Skills.carry(_level("big_hands"))
 	var click := CLICK_SECONDS
 	var interval := Skills.repeat_interval(_level("quick_hands"))
@@ -75,7 +86,7 @@ func _manual_rate() -> float:
 	pick_time *= 1.0 - MAGNET_SAVING * Skills.uptime("magnet", _level("magnet"))
 	var cycle := WALK_SECONDS / speed + pick_time + click
 	cycle += POSTURE_SECONDS * (1.0 - Skills.uptime("long_arm", _level("long_arm")))
-	return carry * Toys.BOX_SIZE * Skills.bundle(_level("bundle")) / cycle
+	return carry / cycle
 
 
 ## 대박 타임 가동률을 반영한 평균 코인 배수
@@ -84,46 +95,51 @@ func _coin_mult() -> float:
 	return 1.0 + (Skills.jackpot_mult(level) - 1.0) * Skills.uptime("jackpot", level)
 
 
-## 열려 있는 층의 선반 중 가장 작은 것부터 채운다.
-func _store(amount: int) -> int:
-	var remaining := amount
+## 열려 있는 층의 선반을 순서대로 채운다. 넣은 박스 수를 돌려준다.
+func _store(boxes: int) -> int:
+	var remaining := boxes
 	while remaining > 0:
 		var best_key := ""
-		var best_space := 0
-		var best_capacity := 0
 		for warehouse_id in _unlocked:
 			for floor_index in GameState.FLOORS_PER_WAREHOUSE:
 				if floor_index == 1 and not _floor_done(warehouse_id, 0):
 					continue
-				for shelf_index in GameState.SHELVES_PER_FLOOR:
+				for shelf_index in GameState.shelves_per_floor(warehouse_id):
 					var key := GameState.shelf_key(warehouse_id, floor_index, shelf_index)
-					var capacity := GameState.SHELF_CAPACITIES[shelf_index]
-					var space := capacity - int(_stored.get(key, 0))
-					if space > 0 and (best_key == "" or capacity < best_capacity):
+					if int(_stored.get(key, 0)) < GameState.BOXES_PER_SHELF:
 						best_key = key
-						best_space = space
-						best_capacity = capacity
+						break
+				if best_key != "":
+					break
+			if best_key != "":
+				break
 		if best_key == "":
 			break
-		var put := mini(remaining, best_space)
+		var space := GameState.BOXES_PER_SHELF - int(_stored.get(best_key, 0))
+		var put := mini(remaining, space)
 		_stored[best_key] = int(_stored.get(best_key, 0)) + put
 		remaining -= put
-		_total += put
-		if put == best_space:
-			_points += 1
+		var points_before := GameState.points_for_boxes(_boxes_total)
+		_boxes_total += put
+		_points += GameState.points_for_boxes(_boxes_total) - points_before
+		_total += put * Toys.BOX_SIZE * Skills.bundle(_level("bundle"))
 		for threshold: int in GameState.UNLOCK_THRESHOLDS:
 			var warehouse_id: int = GameState.UNLOCK_THRESHOLDS[threshold]
 			if _total >= threshold and warehouse_id not in _unlocked:
 				_unlocked.append(warehouse_id)
-	return amount - remaining
+	return boxes - remaining
 
 
 func _floor_done(warehouse_id: int, floor_index: int) -> bool:
-	for shelf_index in GameState.SHELVES_PER_FLOOR:
+	for shelf_index in GameState.shelves_per_floor(warehouse_id):
 		var key := GameState.shelf_key(warehouse_id, floor_index, shelf_index)
-		if int(_stored.get(key, 0)) < GameState.SHELF_CAPACITIES[shelf_index]:
+		if int(_stored.get(key, 0)) < GameState.BOXES_PER_SHELF:
 			return false
 	return true
+
+
+func _all_full() -> bool:
+	return _boxes_total >= GameState.total_shelves() * GameState.BOXES_PER_SHELF
 
 
 ## 포인트는 새 스킬 → 한계 돌파 순으로, 코인은 가장 싼 강화부터 쓴다.

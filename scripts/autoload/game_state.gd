@@ -4,12 +4,13 @@ extends Node
 const TOTAL_TOYS := 10_000_000
 const WAREHOUSE_COUNT := 4
 const FLOORS_PER_WAREHOUSE := 2
-const SHELVES_PER_FLOOR := 10
 const SHELF_TIERS := 10
-## 층 하나의 선반 10개 용량. 합계 1,250,000 (8개 층 = 1,000만)
-const SHELF_CAPACITIES: Array[int] = [
-	20, 80, 400, 1500, 6000, 20000, 60000, 162000, 400000, 600000,
-]
+## 창고 번호 → 한 층의 선반 수. 창고가 클수록 선반이 많다 (2층이라 창고당 ×2)
+const SHELVES_PER_FLOOR := {1: 10, 2: 40, 3: 50, 4: 100}
+## 모든 선반은 똑같이 박스 100개(10단 × 10칸). 박스 1개에 담긴 장난감 수는 묶음 정리로 커진다
+const BOXES_PER_SHELF := 100
+## 스킬 포인트: 정리한 박스 누적이 5·n·(n+1)개(10, 30, 60, 100, ...)에 닿을 때마다 1개
+const POINT_STEP := 5
 ## 누적 정리 수 -> 개방되는 창고 번호
 const UNLOCK_THRESHOLDS := {
 	1000: 2,
@@ -23,6 +24,8 @@ var total_sorted: int = 0
 var coins: int = 0
 var unlocked_warehouses: Array[int] = [1]
 var skill_points: int = 0
+## 지금까지 선반에 넣은 박스 수 (스킬 포인트 지급 기준)
+var boxes_total: int = 0
 var skill_levels: Dictionary = {}
 var skill_caps: Dictionary = {}
 var shelf_stored: Dictionary = {}
@@ -52,9 +55,9 @@ func _process(delta: float) -> void:
 		return
 	_auto_accum += auto_rate() * delta
 	if _auto_accum >= 1.0:
-		var amount := int(_auto_accum)
-		_auto_accum -= amount
-		auto_store(amount)
+		var boxes := int(_auto_accum)
+		_auto_accum -= boxes
+		auto_store(boxes)
 
 
 static func shelf_key(warehouse_id: int, floor_index: int, shelf_index: int) -> String:
@@ -70,55 +73,75 @@ func get_shelf_type(key: String) -> int:
 	return int(shelf_types.get(key, -1))
 
 
-## 선반에 넣고 실제로 들어간 개수를 돌려준다.
+## 한 층의 선반 수
+static func shelves_per_floor(warehouse_id: int) -> int:
+	return int(SHELVES_PER_FLOOR[warehouse_id])
+
+
+## 박스 1개에 담긴 장난감 수 (묶음 정리 레벨에 따라 커진다)
+func toys_per_box() -> int:
+	return Toys.BOX_SIZE * Skills.bundle(level("bundle"))
+
+
+## 박스 누적 수에 해당하는 스킬 포인트 수 (5·n·(n+1) ≤ 박스 수를 만족하는 가장 큰 n)
+static func points_for_boxes(boxes: int) -> int:
+	return int((-1.0 + sqrt(1.0 + 4.0 * boxes / POINT_STEP)) / 2.0)
+
+
+## 박스를 선반에 넣고 실제로 들어간 박스 수를 돌려준다. 박스 1개 = toys_per_box() 개.
 ## toy_type: 넣는 박스의 종류. 선반 종류가 정해져 있고 다르면 넣지 않는다.
 ## -1(자동 정리)이면 정해진 종류를 따르고, 없으면 선반 번호로 종류를 배정한다.
 func store_in_shelf(
-	warehouse_id: int, floor_index: int, shelf_index: int, amount: int,
+	warehouse_id: int, floor_index: int, shelf_index: int, boxes: int,
 	coin_mult: float = 1.0, toy_type: int = -1
 ) -> int:
 	var key := shelf_key(warehouse_id, floor_index, shelf_index)
-	var capacity := SHELF_CAPACITIES[shelf_index]
 	var shelf_type := get_shelf_type(key)
 	if shelf_type >= 0 and toy_type >= 0 and toy_type != shelf_type:
 		return 0
-	if shelf_type < 0:
-		shelf_types[key] = toy_type if toy_type >= 0 else shelf_index % Toys.count()
 	var before := get_shelf_stored(key)
-	var accepted := mini(amount, capacity - before)
+	var accepted := mini(boxes, BOXES_PER_SHELF - before)
 	if accepted <= 0:
 		return 0
+	if shelf_type < 0:
+		shelf_types[key] = toy_type if toy_type >= 0 else shelf_index % Toys.count()
 	shelf_stored[key] = before + accepted
-	total_sorted += accepted
-	coins += int(ceil(accepted * coin_mult * coin_multiplier()))
+	var toys := accepted * toys_per_box()
+	total_sorted += toys
+	coins += int(ceil(toys * coin_mult * coin_multiplier()))
+	var points_before := points_for_boxes(boxes_total)
+	boxes_total += accepted
+	var new_points := points_for_boxes(boxes_total) - points_before
+	skill_points += new_points
 	EventBus.shelf_changed.emit(key)
-	if before + accepted >= capacity:
-		skill_points += 1
+	if before + accepted >= BOXES_PER_SHELF:
 		EventBus.shelf_completed.emit(warehouse_id, floor_index, shelf_index)
+	if new_points > 0:
 		EventBus.skills_changed.emit()
+		EventBus.popup_requested.emit("스킬 포인트 +%d" % new_points)
 	_check_unlocks()
 	EventBus.coins_changed.emit(coins)
 	EventBus.toy_sorted.emit(total_sorted)
-	if total_sorted >= TOTAL_TOYS and not _completed_emitted:
+	if (total_sorted >= TOTAL_TOYS or all_shelves_full()) and not _completed_emitted:
 		_completed_emitted = true
 		EventBus.game_completed.emit()
 	return accepted
 
 
-## 자동 정리·오프라인 보상: 열린 층의 선반을 순서대로 채운다.
-func auto_store(amount: int) -> int:
-	var remaining := amount
+## 자동 정리·오프라인 보상: 열린 층의 선반을 순서대로 박스로 채운다. 넣은 박스 수를 돌려준다.
+func auto_store(boxes: int) -> int:
+	var remaining := boxes
 	for warehouse_id in range(1, WAREHOUSE_COUNT + 1):
 		if not is_warehouse_unlocked(warehouse_id):
 			continue
 		for floor_index in FLOORS_PER_WAREHOUSE:
 			if not is_floor_active(warehouse_id, floor_index):
 				continue
-			for shelf_index in SHELVES_PER_FLOOR:
+			for shelf_index in shelves_per_floor(warehouse_id):
 				if remaining <= 0:
-					return amount
+					return boxes
 				remaining -= store_in_shelf(warehouse_id, floor_index, shelf_index, remaining)
-	return amount - remaining
+	return boxes - remaining
 
 
 func add_coins(amount: int) -> void:
@@ -139,11 +162,11 @@ func unlock_threshold(warehouse_id: int) -> int:
 
 func is_shelf_full(warehouse_id: int, floor_index: int, shelf_index: int) -> bool:
 	var key := shelf_key(warehouse_id, floor_index, shelf_index)
-	return get_shelf_stored(key) >= SHELF_CAPACITIES[shelf_index]
+	return get_shelf_stored(key) >= BOXES_PER_SHELF
 
 
 func is_floor_complete(warehouse_id: int, floor_index: int) -> bool:
-	for shelf_index in SHELVES_PER_FLOOR:
+	for shelf_index in shelves_per_floor(warehouse_id):
 		if not is_shelf_full(warehouse_id, floor_index, shelf_index):
 			return false
 	return true
@@ -159,9 +182,21 @@ func is_floor_active(warehouse_id: int, floor_index: int) -> bool:
 func shelves_completed() -> int:
 	var count := 0
 	for key: String in shelf_stored:
-		var shelf_index := int(key.get_slice("_", 2))
-		if int(shelf_stored[key]) >= SHELF_CAPACITIES[shelf_index]:
+		if int(shelf_stored[key]) >= BOXES_PER_SHELF:
 			count += 1
+	return count
+
+
+## 모든 층(창고 4동 × 2층)이 가득 찼는지
+func all_shelves_full() -> bool:
+	return floors_completed() == WAREHOUSE_COUNT * FLOORS_PER_WAREHOUSE
+
+
+## 선반 총 개수 (창고 4동 × 2층)
+static func total_shelves() -> int:
+	var count := 0
+	for warehouse_id in SHELVES_PER_FLOOR:
+		count += shelves_per_floor(warehouse_id) * FLOORS_PER_WAREHOUSE
 	return count
 
 
@@ -191,12 +226,12 @@ func learned_count() -> int:
 	return count
 
 
-## 자동 정리가 켜져 있는 동안의 초당 정리 개수
+## 자동 정리가 켜져 있는 동안 초당 선반에 들어가는 박스 수
 func auto_rate() -> float:
-	return Skills.auto_rate(level("auto_sort"), level("bundle"))
+	return Skills.auto_boxes(level("auto_sort"))
 
 
-## 쿨타임까지 감안한 평균 초당 정리 개수 (오프라인 보상용)
+## 쿨타임까지 감안한 평균 초당 박스 수 (오프라인 보상용)
 func auto_average_rate() -> float:
 	return auto_rate() * Skills.uptime("auto_sort", level("auto_sort"))
 
@@ -283,6 +318,7 @@ func to_dict() -> Dictionary:
 		"skill_caps": skill_caps,
 		"shelf_stored": shelf_stored,
 		"shelf_types": shelf_types,
+		"boxes_total": boxes_total,
 		"quest_index": quest_index,
 		"doors_opened": doors_opened,
 		"wareureu_done": wareureu_done,
@@ -308,6 +344,7 @@ func from_dict(data: Dictionary) -> void:
 	skill_caps = _int_dict(data.get("skill_caps", {}))
 	shelf_stored = _int_dict(data.get("shelf_stored", {}))
 	shelf_types = _int_dict(data.get("shelf_types", {}))
+	boxes_total = int(data.get("boxes_total", 0))
 	_auto_accum = 0.0
 	_active_until.clear()
 	_ready_at.clear()

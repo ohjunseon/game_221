@@ -20,9 +20,10 @@ func _ready() -> void:
 
 	# 창고 1 안, 선반 앞
 	for i in 3:
-		GameState.store_in_shelf(1, 0, i, 10_000)
-	GameState.store_in_shelf(1, 0, 3, 700)
-	_look_from(Vector3(1.0, 0.9, -23.0), PI / 2.0 - 0.35, -0.05)
+		GameState.store_in_shelf(1, 0, i, GameState.BOXES_PER_SHELF)
+	GameState.store_in_shelf(1, 0, 3, 37)
+	GameState.store_in_shelf(1, 0, 6, 12)
+	_look_from(Vector3(0.0, 0.9, -24.5), 0.0, 0.05)
 	await _wait(20)
 	await _shot("2_shelves")
 
@@ -71,6 +72,14 @@ func _ready() -> void:
 	_look_from(Vector3(-4.0, 0.9, 5.0), PI / 2.0 + 0.3, 0.0)
 	await _wait(90)
 	await _shot("5_wareureu")
+
+	# 가장 큰 창고 4: 문 안쪽에서 선반 줄을 바라본다 (선반 100개씩 2층)
+	GameState.unlocked_warehouses = [1, 2, 3, 4]
+	for i in 36:
+		GameState.store_in_shelf(4, 0, i, GameState.BOXES_PER_SHELF if i % 3 else 40)
+	_look_from(Vector3(-21.0, 0.9, 0.0), PI / 2.0, 0.12)
+	await _wait(60)
+	await _shot("6_big_warehouse")
 
 	print("CAPTURE DONE")
 	get_tree().quit(0)

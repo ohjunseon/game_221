@@ -1,7 +1,6 @@
 extends Node3D
 ## 물류센터 전체: 마당, 창고 4동, 소품, "와르르" 이벤트.
 
-const WAREHOUSE_DISTANCE := 26.0
 const GROUND_SIZE := 220.0
 const PLAZA_SIZE := 72.0
 const MODEL_DIR := "res://assets/models/factory/"
@@ -103,18 +102,16 @@ func _build_ground() -> void:
 
 func _build_warehouses() -> void:
 	# 문(로컬 +Z)이 마당 가운데를 향하도록 돌려 놓는다.
-	var placements: Array = [
-		[Vector3(0.0, 0.0, -WAREHOUSE_DISTANCE), 0.0],
-		[Vector3(WAREHOUSE_DISTANCE, 0.0, 0.0), -PI / 2.0],
-		[Vector3(0.0, 0.0, WAREHOUSE_DISTANCE), PI],
-		[Vector3(-WAREHOUSE_DISTANCE, 0.0, 0.0), PI / 2.0],
-	]
-	for i in placements.size():
+	# 창고마다 크기가 달라서, 문 쪽 벽이 마당 가운데에서 같은 거리가 되도록 중심을 정한다.
+	var directions: Array[Vector3] = [Vector3.FORWARD, Vector3.RIGHT, Vector3.BACK, Vector3.LEFT]
+	var angles: Array[float] = [0.0, -PI / 2.0, PI, PI / 2.0]
+	for i in directions.size():
 		var warehouse := Warehouse.new()
 		warehouse.name = "Warehouse%d" % (i + 1)
 		warehouse.warehouse_id = i + 1
-		warehouse.position = placements[i][0]
-		warehouse.rotation.y = placements[i][1]
+		var distance := Warehouse.DOOR_DISTANCE + Warehouse.size_of(i + 1).y / 2.0
+		warehouse.position = directions[i] * distance
+		warehouse.rotation.y = angles[i]
 		add_child(warehouse)
 		warehouses.append(warehouse)
 
@@ -164,12 +161,24 @@ func _build_props() -> void:
 	for i in warehouses.size():
 		for lateral: float in [-1.0, 1.0]:
 			var angle := -i * PI / 2.0
-			var wall := WAREHOUSE_DISTANCE - Warehouse.DEPTH / 2.0
+			var wall := Warehouse.DOOR_DISTANCE
 			_prop(
 				"warning-traffic",
 				Vector3(3.3 * lateral, 0.0, -wall + 0.9).rotated(Vector3.UP, angle), angle, 1.5
 			)
 			_prop("cone", Vector3(2.8 * lateral, 0.0, -wall + 2.2).rotated(Vector3.UP, angle), 0.0, 1.6)
+
+
+## 그 자리가 창고(여유 margin 포함) 안인지
+func _blocked_by_warehouse(at: Vector3, margin: float) -> bool:
+	for warehouse in warehouses:
+		var local := warehouse.to_local(at)
+		if (
+			absf(local.x) < warehouse.width / 2.0 + margin
+			and absf(local.z) < warehouse.depth / 2.0 + margin
+		):
+			return true
+	return false
 
 
 ## 마당 밖 풍경: 나무와 구름 (충돌 없음)
@@ -195,6 +204,10 @@ func _build_scenery() -> void:
 				PLAZA_SIZE / 2.0 + random.randf_range(3.0, 10.0)
 			).rotated(Vector3.UP, side * PI / 2.0)
 			tree.scale = Vector3.ONE * random.randf_range(1.0, 1.8)
+			# 큰 창고가 서 있는 자리에는 나무를 심지 않는다
+			if _blocked_by_warehouse(tree.position, 4.0):
+				tree.free()
+				continue
 			add_child(tree)
 			var stem := MeshInstance3D.new()
 			stem.mesh = trunk_mesh

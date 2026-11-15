@@ -3,8 +3,8 @@ extends Node
 
 const QUESTS: Array[Dictionary] = [
 	{"text": "장난감 10개 정리하기", "type": "sorted", "target": 10, "reward": 30},
-	{"text": "첫 선반 완성하기", "type": "shelves", "target": 1, "reward": 100},
 	{"text": "스킬 1개 배우기 (Tab)", "type": "skills", "target": 1, "reward": 100},
+	{"text": "첫 선반 완성하기 (박스 100개)", "type": "shelves", "target": 1, "reward": 100},
 	{"text": "1,000개 정리해서 창고 2 열기", "type": "sorted", "target": 1000, "reward": 300},
 	{"text": "창고 2의 문 열기", "type": "doors", "target": 2, "reward": 200},
 	{"text": "스킬 3개 배우기", "type": "skills", "target": 3, "reward": 500},

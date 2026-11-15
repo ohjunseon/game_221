@@ -16,9 +16,9 @@ const DEFS := {
 	"long_arm": {"name": "긴 팔", "desc": "자세 상관없이 멀리서도 선반에 넣는다", "base": 150, "growth": 1.7},
 	"auto_sort": {"name": "자동 정리", "desc": "선반이 알아서 채워진다", "base": 200, "growth": 2.0},
 	"jackpot": {"name": "대박 타임", "desc": "받는 코인이 몇 배가 된다", "base": 150, "growth": 1.8},
-	"bundle": {"name": "묶음 정리", "desc": "박스에 장난감이 더 많이 담긴 것으로 계산된다", "base": 40, "growth": 2.3},
-	"big_hands": {"name": "큰 손", "desc": "박스를 한 번에 더 많이 든다", "base": 20, "growth": 1.8},
-	"quick_hands": {"name": "빠른 손", "desc": "마우스를 누르고 있으면 연속으로 줍고 넣는다", "base": 80, "growth": 1.5},
+	"bundle": {"name": "묶음 정리", "desc": "박스에 장난감이 더 많이 담긴 것으로 계산된다", "base": 40, "growth": 2.4},
+	"big_hands": {"name": "큰 손", "desc": "박스를 한 번에 더 많이 든다", "base": 20, "growth": 2.4},
+	"quick_hands": {"name": "빠른 손", "desc": "마우스를 누르고 있으면 연속으로 줍고 넣는다", "base": 80, "growth": 2.0},
 	"sprint": {"name": "달리기", "desc": "이동 속도가 빨라진다", "base": 50, "growth": 1.7},
 }
 
@@ -85,7 +85,7 @@ static func jackpot_mult(level: int) -> float:
 static func auto_boxes(level: int) -> float:
 	if level <= 0:
 		return 0.0
-	return 0.5 * pow(1.25, level - 1)
+	return 0.5 * pow(1.10, level - 1)
 
 
 ## 자동 정리가 켜져 있을 때 초당 정리 개수
@@ -93,9 +93,9 @@ static func auto_rate(auto_level: int, bundle_level: int) -> float:
 	return auto_boxes(auto_level) * Toys.BOX_SIZE * bundle(bundle_level)
 
 
-## 초반에는 레벨당 +1, 이후에는 1.25배씩
+## 초반에는 레벨당 +1, 이후에는 1.42배씩
 static func bundle(level: int) -> int:
-	return maxi(level + 1, int(round(pow(1.25, level))))
+	return maxi(level + 1, int(round(pow(1.42, level))))
 
 
 ## 한 번에 들 수 있는 박스 수

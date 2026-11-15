@@ -21,10 +21,34 @@ func _ready() -> void:
 	_check(warehouses[0].shelves.size() == 20, "창고당 선반 20개 (2층 × 10)")
 	_check(warehouses[0].is_open and not warehouses[1].is_open, "창고 1만 처음부터 열림")
 
-	var capacity_sum := 0
-	for capacity in GameState.SHELF_CAPACITIES:
-		capacity_sum += capacity
-	_check(capacity_sum * 8 == GameState.TOTAL_TOYS, "선반 용량 합계 = 1,000만")
+	# 모든 선반은 박스 100개로 같고, 창고마다 선반 수와 크기가 다르다
+	var expected_shelves: Array[int] = [20, 80, 100, 200]
+	for i in 4:
+		_check(
+			warehouses[i].shelves.size() == expected_shelves[i],
+			"창고 %d: 선반 %d개 (실제 %d)" % [i + 1, expected_shelves[i], warehouses[i].shelves.size()]
+		)
+	_check(GameState.total_shelves() == 400, "선반 총 400개")
+	var all_same := true
+	for warehouse in warehouses:
+		for each_shelf in warehouse.shelves:
+			all_same = all_same and each_shelf.capacity() == 100
+	_check(all_same and GameState.BOXES_PER_SHELF == 100, "모든 선반 박스 100개")
+	var sizes: Array[Vector2] = []
+	for i in 4:
+		sizes.append(Warehouse.size_of(i + 1))
+	_check(
+		sizes[0].x * sizes[0].y < sizes[1].x * sizes[1].y
+		and sizes[1].x * sizes[1].y < sizes[2].x * sizes[2].y
+		and sizes[2].x * sizes[2].y < sizes[3].x * sizes[3].y,
+		"창고 넓이는 1 < 2 < 3 < 4"
+	)
+	_check(
+		GameState.points_for_boxes(9) == 0 and GameState.points_for_boxes(10) == 1
+		and GameState.points_for_boxes(30) == 2 and GameState.points_for_boxes(100) == 4
+		and GameState.points_for_boxes(40000) == 88,
+		"스킬 포인트: 박스 10·30·60·100개마다 (전체 88개)"
+	)
 
 	var toys := get_tree().get_nodes_in_group("toy")
 	_check(toys.size() == Warehouse.TOY_TARGET, "창고 1의 1층에만 장난감 (실제 %d)" % toys.size())
@@ -75,9 +99,13 @@ func _ready() -> void:
 		player.boxes.append(type_a)
 		if not player.try_place(shelf, posture):
 			break
-	_check(shelf.is_full() and GameState.total_sorted == shelf.capacity(), "첫 선반 완성")
+	_check(
+		shelf.is_full() and GameState.total_sorted == shelf.capacity() * Toys.BOX_SIZE,
+		"첫 선반 완성: 박스 %d개" % shelf.capacity()
+	)
 	_check(postures_used.size() == 3, "세 자세 모두 사용")
-	_check(GameState.skill_points == 1, "선반 완성 시 스킬 포인트 1")
+	_check(GameState.skill_points == 4, "박스 100개 → 스킬 포인트 4 (실제 %d)" % GameState.skill_points)
+	GameState.skill_points = 1
 	player.boxes.append(type_a)
 	_check(not player.try_place(shelf, Shelf.Posture.JUMP), "완성된 선반에는 넣기 불가")
 	player.boxes.clear()
@@ -181,23 +209,22 @@ func _ready() -> void:
 		GameState.store_in_shelf(1, 0, 2, 100, 1.0, type_a) == 0, "다른 종류는 저장소에서도 거절"
 	)
 	player.boxes.clear()
-	var packed_boxes := third.box_slots()
-	_check(packed_boxes == 100 and warehouses[0].shelves[0].box_slots() == 5, "박스 칸 수: 큰 선반 100, 용량 20 선반 5")
+	_check(third.stored() == 1 and third.current_tier() == 1, "선반에 박스 1개: 1단")
 
 	# 창고 해금, 문, 와르르
 	_check(not GameState.is_warehouse_unlocked(2), "1,000개 전에는 창고 2 잠김")
 	warehouses[1].toggle_door()
 	_check(not warehouses[1].is_open, "잠긴 창고 문은 안 열림")
-	GameState.auto_store(1000 - GameState.total_sorted)
+	_sort_until(1000)
 	_check(GameState.is_warehouse_unlocked(2), "1,000개에 창고 2 개방")
 	warehouses[1].toggle_door()
 	_check(warehouses[1].is_open, "개방 후 문 열림")
 	warehouses[1].toggle_door()
 	_check(not warehouses[1].is_open, "문 닫힘")
-	GameState.auto_store(4000)
+	_sort_until(5000)
 	_check(GameState.is_warehouse_unlocked(3), "5,000개에 창고 3 개방")
 	_check(not GameState.wareureu_done, "1만 개 전에는 와르르 없음")
-	GameState.auto_store(5000)
+	_sort_until(10000)
 	_check(GameState.is_warehouse_unlocked(4), "10,000개에 창고 4 개방")
 	_check(GameState.wareureu_done and warehouses[3].is_open, "와르르: 창고 4 문이 열림")
 	for i in 100:
@@ -210,8 +237,8 @@ func _ready() -> void:
 
 	# 층 진행: 1층을 다 채워야 2층이 열린다
 	_check(not GameState.is_floor_active(1, 1), "1층 완료 전 2층 비활성")
-	for shelf_index in GameState.SHELVES_PER_FLOOR:
-		GameState.store_in_shelf(1, 0, shelf_index, 10_000_000)
+	for shelf_index in GameState.shelves_per_floor(1):
+		GameState.store_in_shelf(1, 0, shelf_index, GameState.BOXES_PER_SHELF)
 	_check(GameState.is_floor_complete(1, 0) and GameState.is_floor_active(1, 1), "1층 완료 → 2층 활성")
 	_check(GameState.floors_completed() == 1, "완료한 층 1개")
 
@@ -235,6 +262,7 @@ func _ready() -> void:
 		await get_tree().process_frame
 	_check(GameState.total_sorted == total_before, "자동 정리를 켜기 전에는 그대로")
 	_check(player.use_skill(2), "3번 키로 자동 정리 발동")
+	GameState._auto_accum = 1.0
 	for i in 60:
 		await get_tree().process_frame
 	_check(GameState.total_sorted > total_before, "자동 정리 사용 중 선반이 채워짐")
@@ -246,7 +274,11 @@ func _ready() -> void:
 	GameState.saved_at = 1_000_000
 	total_before = GameState.total_sorted
 	var gained := SaveManager.apply_offline_reward(1_000_000 + 600)
-	_check(gained == int(rate * 600 * GameState.OFFLINE_EFFICIENCY), "오프라인 10분 보상 (실제 %d)" % gained)
+	var offline_boxes := int(rate * 600 * GameState.OFFLINE_EFFICIENCY)
+	_check(
+		gained == offline_boxes * GameState.toys_per_box(),
+		"오프라인 10분 보상: 박스 %d개 (실제 %d개 정리)" % [offline_boxes, gained]
+	)
 	_check(GameState.total_sorted == total_before + gained, "오프라인 보상이 정리 수에 반영")
 	_check(SaveManager.apply_offline_reward(1_000_000 + 30) == 0, "1분 미만은 보상 없음")
 
@@ -254,9 +286,16 @@ func _ready() -> void:
 	var completed := [false]
 	EventBus.game_completed.connect(func() -> void: completed[0] = true)
 	GameState.unlocked_warehouses = [1, 2, 3, 4]
-	GameState.auto_store(GameState.TOTAL_TOYS)
-	_check(GameState.total_sorted == GameState.TOTAL_TOYS, "1,000만 개 정리 (실제 %d)" % GameState.total_sorted)
-	_check(GameState.shelves_completed() == 80 and GameState.floors_completed() == 8, "선반 80개·8개 층 완료")
+	# 박스 1개에 장난감이 충분히 담기도록 묶음 정리를 높여 둔다
+	GameState.skill_levels["bundle"] = 20
+	GameState.auto_store(GameState.total_shelves() * GameState.BOXES_PER_SHELF)
+	_check(GameState.total_sorted >= GameState.TOTAL_TOYS, "1,000만 개 정리 (실제 %d)" % GameState.total_sorted)
+	_check(
+		GameState.shelves_completed() == 400 and GameState.floors_completed() == 8,
+		"선반 400개·8개 층 완료 (실제 선반 %d, 층 %d)" % [
+			GameState.shelves_completed(), GameState.floors_completed()
+		]
+	)
 	_check(completed[0], "완료 시그널 발생")
 	_check(QuestManager.current().is_empty(), "모든 퀘스트 완료")
 
@@ -265,6 +304,12 @@ func _ready() -> void:
 		"PASS" if _failures == 0 else "FAIL", _checks, _failures
 	])
 	get_tree().quit(0 if _failures == 0 else 1)
+
+
+## 정리한 장난감 수가 target에 닿을 때까지 자동 정리로 박스를 채운다.
+func _sort_until(target: int) -> void:
+	var per_box := GameState.toys_per_box()
+	GameState.auto_store(maxi(0, ceili(float(target - GameState.total_sorted) / per_box)))
 
 
 func _check(condition: bool, description: String) -> void:

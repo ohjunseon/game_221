@@ -3,7 +3,8 @@ extends Node
 ## 불러올 때 자동 정리 스킬이 있으면 오프라인 보상을 계산한다.
 
 const SAVE_PATH := "user://save.json"
-const SAVE_VERSION := 2
+## 3: 선반 저장량이 장난감 수에서 박스 수로 바뀜 (이전 저장은 호환되지 않아 .old로 보관하고 새로 시작)
+const SAVE_VERSION := 3
 const AUTOSAVE_INTERVAL := 30.0
 const OFFLINE_MIN_SECONDS := 60
 
@@ -46,7 +47,10 @@ func load_game() -> void:
 		push_error("불러오기 실패: %s" % error_string(FileAccess.get_open_error()))
 		return
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
-	if parsed is Dictionary:
+	if parsed is Dictionary and int(parsed.get("version", 0)) < SAVE_VERSION:
+		DirAccess.rename_absolute(SAVE_PATH, SAVE_PATH + ".old")
+		push_warning("이전 버전 저장 파일을 %s.old 로 보관하고 새로 시작합니다" % SAVE_PATH)
+	elif parsed is Dictionary:
 		GameState.from_dict(parsed)
 		apply_offline_reward(int(Time.get_unix_time_from_system()))
 	else:
@@ -61,7 +65,8 @@ func apply_offline_reward(now: int) -> int:
 	var elapsed := mini(now - GameState.saved_at, GameState.OFFLINE_MAX_SECONDS)
 	if elapsed < OFFLINE_MIN_SECONDS:
 		return 0
-	var amount := int(rate * elapsed * GameState.OFFLINE_EFFICIENCY)
-	var stored := GameState.auto_store(amount)
+	var boxes := int(rate * elapsed * GameState.OFFLINE_EFFICIENCY)
+	var per_box := GameState.toys_per_box()
+	var stored := GameState.auto_store(boxes) * per_box
 	GameState.offline_report = {"seconds": elapsed, "stored": stored}
 	return stored

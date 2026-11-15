@@ -219,10 +219,10 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 			Sfx.play("error")
 		return false
 	var matching := boxes.count(box_type)
-	var per_box := Toys.BOX_SIZE * Skills.bundle(GameState.level("bundle"))
+	var per_box := GameState.toys_per_box()
 	var target := shelf.tier_position(shelf.current_tier())
-	var accepted := shelf.add(matching * per_box, 1.0, box_type)
-	var used := mini(ceili(float(accepted) / per_box), matching)
+	var used := shelf.add(matching, 1.0, box_type)
+	var accepted := used * per_box
 	for i in used:
 		boxes.remove_at(boxes.rfind(box_type))
 	# 황금 박스: 이미 받은 1배에 더해 나머지 9배를 준다
