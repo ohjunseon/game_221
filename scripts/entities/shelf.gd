@@ -34,6 +34,8 @@ var _toy_mesh: BoxMesh
 var _visuals: Array[MeshInstance3D] = []
 var _pending_type: int = -1
 var _celebrated: bool = false
+## _ready가 끝난 뒤에 들어오는 박스만 튀어나오는 연출을 한다
+var _live: bool = false
 
 
 ## 1~3단 웅크리기, 4~8단 서서, 9~10단 점프
@@ -60,6 +62,9 @@ func _ready() -> void:
 	_build()
 	_celebrated = is_full()
 	_sync()
+	if _celebrated:
+		_add_crown(false)
+	_live = true
 	EventBus.shelf_changed.connect(_on_shelf_changed)
 
 
@@ -79,6 +84,11 @@ func is_full() -> bool:
 func current_tier() -> int:
 	@warning_ignore("integer_division")
 	return mini(stored() * TIER_COUNT / capacity() + 1, TIER_COUNT)
+
+
+## 해당 단(1~10) 가운데의 월드 좌표. 박스가 날아갈 목표다.
+func tier_position(tier: int) -> Vector3:
+	return global_transform * Vector3(0.0, (tier - 0.5) * TIER_HEIGHT, 0.0)
 
 
 ## 장난감을 넣고 실제로 들어간 개수를 돌려준다.
@@ -132,31 +142,90 @@ func _add_toy_visual(index: int) -> void:
 	)
 	add_child(toy)
 	_visuals.append(toy)
+	if _live:
+		# 날아오는 박스가 닿을 즈음 "쏙" 하고 튀어나온다
+		var full_scale := toy.scale
+		toy.scale = full_scale * 0.1
+		var tween := toy.create_tween()
+		tween.tween_interval(0.12)
+		tween.tween_property(toy, "scale", full_scale, 0.25) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
+## 선반 완성: 색종이 폭죽, 금색 테두리와 별, 팡파르
 func _celebrate() -> void:
 	var particles := CPUParticles3D.new()
 	var mesh := BoxMesh.new()
-	mesh.size = Vector3.ONE * 0.08
+	mesh.size = Vector3(0.1, 0.02, 0.07)
 	particles.mesh = mesh
-	var spark := StandardMaterial3D.new()
-	spark.albedo_color = Color(1.0, 0.85, 0.2)
-	spark.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	particles.material_override = spark
+	var paper := StandardMaterial3D.new()
+	paper.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	paper.vertex_color_use_as_albedo = true
+	particles.material_override = paper
+	var colors := Gradient.new()
+	colors.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
+	colors.offsets = PackedFloat32Array([0.0, 0.2, 0.4, 0.6, 0.8])
+	colors.colors = PackedColorArray([
+		Color(1.0, 0.85, 0.2), Color(1.0, 0.45, 0.6), Color(0.4, 0.75, 1.0),
+		Color(0.45, 0.95, 0.65), Color(1.0, 1.0, 1.0),
+	])
+	particles.color_initial_ramp = colors
 	particles.one_shot = true
-	particles.amount = 48
-	particles.lifetime = 1.2
+	particles.amount = 110
+	particles.lifetime = 1.8
 	particles.explosiveness = 0.95
 	particles.direction = Vector3.UP
-	particles.spread = 50.0
+	particles.spread = 55.0
 	particles.initial_velocity_min = 4.0
-	particles.initial_velocity_max = 7.0
-	particles.color = Color(1.0, 0.85, 0.2)
+	particles.initial_velocity_max = 8.0
+	particles.angular_velocity_min = -360.0
+	particles.angular_velocity_max = 360.0
+	particles.gravity = Vector3(0.0, -7.0, 0.0)
 	particles.position.y = TIER_HEIGHT * TIER_COUNT
 	add_child(particles)
 	particles.emitting = true
-	get_tree().create_timer(2.5).timeout.connect(particles.queue_free)
-	Sfx.play("complete")
+	get_tree().create_timer(3.0).timeout.connect(particles.queue_free)
+	_add_crown(true)
+	Sfx.play("fanfare")
+	EventBus.popup_requested.emit("선반 완성! 스킬 포인트 +1")
+	EventBus.shake_requested.emit(0.5)
+
+
+## 완성한 선반의 금색 테두리와 꼭대기에서 도는 별
+func _add_crown(animated: bool) -> void:
+	var gold := Look.glow(Toys.GOLD, 0.45)
+	var height := TIER_HEIGHT * TIER_COUNT
+	var bars: Array = [
+		[Vector3(WIDTH + 0.16, 0.08, DEPTH + 0.08), Vector3(0.0, height + 0.04, 0.0)],
+		[Vector3(0.1, height + 0.08, DEPTH + 0.08), Vector3(-WIDTH / 2.0, height / 2.0, 0.0)],
+		[Vector3(0.1, height + 0.08, DEPTH + 0.08), Vector3(WIDTH / 2.0, height / 2.0, 0.0)],
+	]
+	for bar: Array in bars:
+		var mesh := BoxMesh.new()
+		mesh.size = bar[0]
+		var node := MeshInstance3D.new()
+		node.mesh = mesh
+		node.material_override = gold
+		node.position = bar[1]
+		add_child(node)
+
+	var star := Node3D.new()
+	star.position.y = height + 0.62
+	var point_mesh := BoxMesh.new()
+	point_mesh.size = Vector3(0.24, 0.24, 0.06)
+	for angle: float in [0.0, PI / 4.0]:
+		var point := MeshInstance3D.new()
+		point.mesh = point_mesh
+		point.material_override = gold
+		point.rotation.z = angle
+		star.add_child(point)
+	add_child(star)
+	var spin := star.create_tween().set_loops()
+	spin.tween_property(star, "rotation:y", TAU, 3.0).from(0.0)
+	if animated:
+		star.scale = Vector3.ONE * 0.1
+		star.create_tween().tween_property(star, "scale", Vector3.ONE, 0.5) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _build() -> void:

@@ -3,6 +3,8 @@ extends CanvasLayer
 ## 화면 아래 스킬 슬롯 4칸(1~4 키), 스킬·업그레이드 메뉴(Tab).
 
 const MESSAGE_SECONDS := 2.4
+const MAX_FLYING_COINS := 12
+const COIN_FLY_GAP_MSEC := 150
 const NAVY := Color(0.12, 0.15, 0.28)
 const INK := Color(0.08, 0.1, 0.2)
 const YELLOW := Color(1.0, 0.84, 0.32)
@@ -33,6 +35,11 @@ var _slot_labels: Array[Label] = []
 var _slot_bars: Array[ProgressBar] = []
 var _slot_icons: Array[TextureRect] = []
 var _slot_styles: Array[StyleBoxFlat] = []
+var _last_coins: int = 0
+var _flying_coins: int = 0
+var _last_fly_msec: int = 0
+var _coin_style: StyleBoxFlat
+var _coin_tween: Tween
 
 
 func _ready() -> void:
@@ -78,7 +85,8 @@ func _ready() -> void:
 	_build_menu()
 
 	EventBus.toy_sorted.connect(func(_total: int) -> void: _refresh())
-	EventBus.coins_changed.connect(func(_coins: int) -> void: _refresh())
+	EventBus.coins_changed.connect(_on_coins_changed)
+	_last_coins = GameState.coins
 	EventBus.skills_changed.connect(_refresh)
 	EventBus.quest_changed.connect(_refresh)
 	EventBus.carried_changed.connect(func(_carried: int, _capacity: int) -> void: _refresh())
@@ -187,6 +195,54 @@ func _show_popup(text: String) -> void:
 	tween.tween_property(label, "position:y", label.position.y - 70.0, 0.8)
 	tween.tween_property(label, "modulate:a", 0.0, 0.8).set_ease(Tween.EASE_IN)
 	tween.chain().tween_callback(label.queue_free)
+
+
+## 코인이 늘면 화면 가운데에서 동전이 튀어나와 코인 숫자로 날아간다.
+func _on_coins_changed(coins: int) -> void:
+	var gained := coins - _last_coins
+	_last_coins = coins
+	_refresh()
+	var now := Time.get_ticks_msec()
+	if gained <= 0 or _menu.visible or now - _last_fly_msec < COIN_FLY_GAP_MSEC:
+		return
+	_last_fly_msec = now
+	if _coin_style == null:
+		_coin_style = _style(YELLOW, 10)
+		_coin_style.set_border_width_all(3)
+		_coin_style.border_color = YELLOW.darkened(0.3)
+	var center := get_viewport().get_visible_rect().size / 2.0
+	var target := _coin_label.global_position + Vector2(-30.0, 2.0)
+	for i in clampi(gained, 1, 6):
+		if _flying_coins >= MAX_FLYING_COINS:
+			return
+		_flying_coins += 1
+		var coin := Panel.new()
+		coin.add_theme_stylebox_override("panel", _coin_style)
+		coin.size = Vector2(20, 20)
+		coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_root.add_child(coin)
+		coin.position = center + Vector2(randf_range(-30.0, 30.0), randf_range(0.0, 40.0))
+		var burst := coin.position + Vector2(randf_range(-80.0, 80.0), randf_range(-90.0, -20.0))
+		var tween := coin.create_tween()
+		tween.tween_interval(0.035 * i)
+		tween.tween_property(coin, "position", burst, 0.16) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tween.tween_property(coin, "position", target, 0.34) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tween.tween_callback(_on_coin_arrived.bind(coin, i))
+
+
+func _on_coin_arrived(coin: Control, index: int) -> void:
+	coin.queue_free()
+	_flying_coins -= 1
+	Sfx.play("coin", 1.0 + 0.07 * index)
+	# 코인 숫자가 통통 튄다
+	if _coin_tween != null:
+		_coin_tween.kill()
+	_coin_label.pivot_offset = _coin_label.size / 2.0
+	_coin_label.scale = Vector2.ONE * 1.25
+	_coin_tween = create_tween()
+	_coin_tween.tween_property(_coin_label, "scale", Vector2.ONE, 0.15)
 
 
 func _on_game_completed() -> void:

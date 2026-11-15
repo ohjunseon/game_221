@@ -18,6 +18,7 @@ const CARDBOARD := Color(0.86, 0.68, 0.45)
 const DARK := Color(0.16, 0.16, 0.2)
 const TAPE := Color(0.95, 0.85, 0.62)
 const WHITE := Color(0.95, 0.95, 0.95)
+const GOLD := Color(1.0, 0.8, 0.2)
 
 static var _materials: Dictionary = {}
 static var _meshes: Dictionary = {}
@@ -116,6 +117,19 @@ static func make_box(type: int, size: float) -> MeshInstance3D:
 ## 이미 만든 박스의 라벨을 다른 형태 색으로 바꾼다.
 static func set_box_type(box: MeshInstance3D, type: int) -> void:
 	(box.get_child(0) as MeshInstance3D).material_override = _material(COLORS[type])
+
+
+## 장난감(자식 메시 전부)을 금색으로 빛나게 한다.
+static func gild(node: Node) -> void:
+	for child in node.get_children():
+		gild(child)
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).material_override = Look.glow(GOLD, 0.9)
+
+
+## 박스 몸통을 금색 또는 골판지 색으로 바꾼다. 라벨과 테이프는 그대로다.
+static func set_box_golden(box: MeshInstance3D, golden: bool) -> void:
+	box.material_override = Look.glow(GOLD, 0.9) if golden else _material(CARDBOARD)
 
 
 static func _part(

@@ -8,6 +8,7 @@ var _checks: int = 0
 
 func _ready() -> void:
 	SaveManager.enabled = false
+	Warehouse.golden_chance = 0.0
 	GameState.reset()
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	add_child(main)
@@ -130,6 +131,22 @@ func _ready() -> void:
 	_check(player.loose == 0, "박스를 더 못 들면 자석도 멈춤")
 	player.boxes.clear()
 	GameState.now += 100.0
+
+	# 황금 장난감: 한 개라도 섞인 박스는 코인 10배
+	for i in Toys.BOX_SIZE:
+		var golden_toy := Warehouse.make_toy(false, 1)
+		add_child(golden_toy)
+		if i == 2:
+			Warehouse.gild_toy(golden_toy)
+		player.try_pick(golden_toy, true)
+	_check(player.boxes.size() == 1 and player.golden_boxes == 1, "황금 장난감이 섞이면 황금 박스")
+	coins_before = GameState.coins
+	player.try_place(second, Shelf.required_posture(second.current_tier()))
+	_check(
+		GameState.coins - coins_before == Toys.BOX_SIZE * player.GOLDEN_MULT,
+		"황금 박스: 코인 %d배 (실제 +%d)" % [player.GOLDEN_MULT, GameState.coins - coins_before]
+	)
+	_check(player.golden_boxes == 0, "넣은 뒤 황금 박스 없음")
 
 	# 업그레이드: 포인트 없이 코인으로
 	GameState.coins = 0

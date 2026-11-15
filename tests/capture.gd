@@ -42,6 +42,8 @@ func _ready() -> void:
 		_player.try_pick(by_type[types[0]][i])
 	for i in 2:
 		_player.try_pick(by_type[types[1]][i])
+	for i in 3:
+		Warehouse.gild_toy(by_type[types[2 + i]][0])
 	_look_from(Vector3(0.0, 0.9, -21.0), 0.0, -0.55)
 	await _wait(10)
 	await _shot("2b_toys")

@@ -12,6 +12,9 @@ const CROUCH_LERP_SPEED := 10.0
 ## 1: 바닥·선반·문, 2: 장난감
 const RAY_MASK := 3
 const ARM_REST := Vector3(0.32, -0.42, -0.55)
+const HELD_BOX_SIZE := 0.2
+## 황금 박스의 코인 배수
+const GOLDEN_MULT := 10
 
 const ACTIONS := {
 	"move_forward": KEY_W,
@@ -28,7 +31,12 @@ var held_type: int = -1
 var loose: int = 0
 ## 완성해서 들고 있는 박스들의 장난감 형태
 var boxes: Array[int] = []
+## 모으는 묶음에 황금 장난감이 섞였는지, 들고 있는 박스 중 황금 박스 수
+var golden_loose := false
+var golden_boxes: int = 0
 
+var _packed := false
+var _box_tween: Tween
 var _aim_text := ""
 var _repeat_timer := 0.0
 var _shake := 0.0
@@ -204,14 +212,28 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 		return false
 
 	var per_box := Toys.BOX_SIZE * Skills.bundle(GameState.level("bundle"))
-	var accepted := shelf.add(boxes.size() * per_box, 1.0, boxes[-1])
-	for i in mini(ceili(float(accepted) / per_box), boxes.size()):
+	var box_type: int = boxes[-1]
+	var target := shelf.tier_position(shelf.current_tier())
+	var accepted := shelf.add(boxes.size() * per_box, 1.0, box_type)
+	var used := mini(ceili(float(accepted) / per_box), boxes.size())
+	for i in used:
 		boxes.pop_back()
+	# 황금 박스: 이미 받은 1배에 더해 나머지 9배를 준다
+	var golden_used := mini(golden_boxes, used)
+	golden_boxes -= golden_used
+	if golden_used > 0:
+		GameState.add_coins(int(ceil(
+			golden_used * per_box * (GOLDEN_MULT - 1) * GameState.coin_multiplier()
+		)))
+	_throw_box(box_type, target, golden_used > 0)
 	_refresh_hands()
 
 	var popup := "+%s" % Skills.fmt(accepted)
 	if GameState.is_active("jackpot"):
 		popup += "  코인 ×%.1f" % GameState.coin_multiplier()
+	if golden_used > 0:
+		popup += "  황금 박스 ×%d" % GOLDEN_MULT
+		Sfx.play("golden")
 	EventBus.popup_requested.emit(popup)
 	Sfx.play("place")
 	_punch_arm()
@@ -286,13 +308,20 @@ func carry_text() -> String:
 ## fly가 참이면 장난감이 손으로 날아온 뒤 사라진다(자석).
 func _take(toy: Node3D, fly: bool = false) -> void:
 	held_type = toy.get_meta("toy_type", 0)
+	if toy.get_meta("golden", false):
+		golden_loose = true
+		EventBus.popup_requested.emit("황금 장난감!")
+		Sfx.play("golden")
 	toy.remove_from_group("toy")
-	if fly:
+	if toy.is_inside_tree():
+		# 손으로 빨려 들어온 뒤 사라진다
 		(toy as CollisionObject3D).collision_layer = 0
 		if toy is RigidBody3D:
 			(toy as RigidBody3D).freeze = true
 		var tween := toy.create_tween()
-		tween.tween_property(toy, "global_position", head.global_position + Vector3.DOWN * 0.4, 0.2)
+		tween.tween_property(
+			toy, "global_position", head.global_position + Vector3.DOWN * 0.4, 0.2 if fly else 0.1
+		)
 		tween.tween_callback(toy.queue_free)
 	else:
 		toy.queue_free()
@@ -301,15 +330,24 @@ func _take(toy: Node3D, fly: bool = false) -> void:
 		boxes.append(held_type)
 		loose = 0
 		held_type = -1
-		EventBus.popup_requested.emit("박스 완성!")
-		Sfx.play("buy")
+		_packed = true
+		if golden_loose:
+			golden_loose = false
+			golden_boxes += 1
+			EventBus.popup_requested.emit("황금 박스 완성!")
+		else:
+			EventBus.popup_requested.emit("박스 완성!")
+		Sfx.play("pack")
 
 
 ## 오른손에는 모으는 장난감, 왼손에는 완성한 박스를 보여 준다.
 func _refresh_hands() -> void:
 	if _held_toy_type != held_type:
 		if _held_toy != null:
-			_held_toy.queue_free()
+			if _packed:
+				_pack_away(_held_toy)
+			else:
+				_held_toy.queue_free()
 			_held_toy = null
 		_held_toy_type = held_type
 		if held_type >= 0:
@@ -317,10 +355,50 @@ func _refresh_hands() -> void:
 			_held_toy.scale = Vector3.ONE * 0.6
 			_held_toy.position = Vector3(0.0, 0.05, -0.28)
 			_right_arm.add_child(_held_toy)
+	if _held_toy != null and golden_loose and not _held_toy.has_meta("golden"):
+		_held_toy.set_meta("golden", true)
+		Toys.gild(_held_toy)
+	golden_boxes = mini(golden_boxes, boxes.size())
 	_held_box.visible = not boxes.is_empty()
 	if not boxes.is_empty():
 		Toys.set_box_type(_held_box, boxes[-1])
+		Toys.set_box_golden(_held_box, golden_boxes > 0)
+	if _packed:
+		_packed = false
+		_pop_box()
 	EventBus.carried_changed.emit(boxes.size(), carry_capacity())
+
+
+## 박스 완성: 오른손의 장난감이 빙글 돌며 왼손 박스 쪽으로 빨려 들어간다.
+func _pack_away(toy: Node3D) -> void:
+	var tween := toy.create_tween().set_parallel(true)
+	tween.tween_property(toy, "rotation:y", TAU * 2.0, 0.22)
+	tween.tween_property(toy, "scale", Vector3.ONE * 0.05, 0.22).set_ease(Tween.EASE_IN)
+	tween.tween_property(toy, "position", Vector3(-0.6, 0.14, -0.2), 0.22).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(toy.queue_free)
+
+
+## 왼손 박스가 "뿅" 하고 튀어나온다.
+func _pop_box() -> void:
+	if _box_tween != null:
+		_box_tween.kill()
+	_held_box.scale = Vector3.ONE * HELD_BOX_SIZE * 0.2
+	_box_tween = create_tween()
+	_box_tween.tween_interval(0.12)
+	_box_tween.tween_property(_held_box, "scale", Vector3.ONE * HELD_BOX_SIZE, 0.28) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## 넣을 때 박스가 왼손에서 선반 칸으로 날아간다.
+func _throw_box(type: int, target: Vector3, golden: bool) -> void:
+	var box := Toys.make_box(type, HELD_BOX_SIZE)
+	Toys.set_box_golden(box, golden)
+	get_parent().add_child(box)
+	box.global_position = _held_box.global_position
+	var tween := box.create_tween().set_parallel(true)
+	tween.tween_property(box, "global_position", target, 0.14).set_ease(Tween.EASE_IN)
+	tween.tween_property(box, "scale", Vector3.ONE * Shelf.TOY_VISUAL_SIZE, 0.14)
+	tween.chain().tween_callback(box.queue_free)
 
 
 func _update_shake(delta: float) -> void:
@@ -372,7 +450,7 @@ func _build_arms() -> void:
 		else:
 			_left_arm = arm
 
-	_held_box = Toys.make_box(0, 0.2)
+	_held_box = Toys.make_box(0, HELD_BOX_SIZE)
 	_held_box.position = Vector3(0.0, 0.14, -0.2)
 	_held_box.visible = false
 	_left_arm.add_child(_held_box)

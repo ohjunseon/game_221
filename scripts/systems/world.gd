@@ -5,12 +5,21 @@ const WAREHOUSE_DISTANCE := 26.0
 const GROUND_SIZE := 220.0
 const PLAZA_SIZE := 72.0
 const MODEL_DIR := "res://assets/models/factory/"
+const BELT_START := 5.6
+const BELT_END := 14.4
+const BELT_SPEED := 0.9
+const BELT_BOX_SIZE := 0.9
 const WAREUREU_TOYS := 240
 const WAREUREU_PER_FRAME := 3
 
 var warehouses: Array[Warehouse] = []
 
 var _wareureu_left: int = 0
+var _time: float = 0.0
+var _belt_boxes: Array[Node3D] = []
+var _robot_arms: Array[Node3D] = []
+var _crane: Node3D
+var _cog: Node3D
 
 
 func _ready() -> void:
@@ -21,7 +30,8 @@ func _ready() -> void:
 	EventBus.warehouse_unlocked.connect(_on_warehouse_unlocked)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_animate_props(delta)
 	if _wareureu_left <= 0:
 		return
 	var source := warehouses[3]
@@ -116,19 +126,21 @@ func _build_props() -> void:
 		for i in 3:
 			_prop("conveyor-long-stripe-sides", Vector3((7.0 + 3.0 * i) * side, 0.0, z))
 		_solid(Vector3(9.0, 0.6, 1.5), Vector3(10.0 * side, 0.0, z))
-		for x: float in [6.4, 8.8, 11.6, 13.6]:
-			_prop("box-small", Vector3(x * side, 0.6, z), x, 0.9)
+		for x: float in [6.0, 8.2, 10.4, 12.6]:
+			_belt_boxes.append(_prop("box-small", Vector3(x * side, 0.6, z), x, BELT_BOX_SIZE))
 		_prop("scanner-high", Vector3(10.2 * side, 0.0, z), PI / 2.0)
-		_prop("robot-arm-a" if side > 0.0 else "robot-arm-b", Vector3(15.6 * side, 0.0, z), 0.0, 1.8)
+		_robot_arms.append(_prop(
+			"robot-arm-a" if side > 0.0 else "robot-arm-b", Vector3(15.6 * side, 0.0, z), 0.0, 1.8
+		))
 		_solid(Vector3(1.4, 1.8, 1.4), Vector3(15.6 * side, 0.0, z))
 
 	# 크레인과 기계
-	_prop("crane", Vector3(-12.0, 0.0, -12.0), PI / 4.0, 1.8)
+	_crane = _prop("crane", Vector3(-12.0, 0.0, -12.0), PI / 4.0, 1.8)
 	_solid(Vector3(2.4, 6.0, 2.4), Vector3(-12.0, 0.0, -12.0))
 	_prop("machine-window", Vector3(12.0, 0.0, 12.0), -PI / 4.0, 2.0)
 	_solid(Vector3(2.4, 2.6, 3.0), Vector3(12.0, 0.0, 12.0), -PI / 4.0)
 	_prop("screen-wide", Vector3(9.0, 0.0, 14.5), -PI / 4.0, 1.6)
-	_prop("cog-a", Vector3(14.5, 0.3, 9.0), 0.4, 1.4)
+	_cog = _prop("cog-a", Vector3(14.5, 0.3, 9.0), 0.4, 1.4)
 
 	# 박스 더미
 	var stacks: Array[Vector3] = [
@@ -220,6 +232,24 @@ func _build_scenery() -> void:
 
 
 ## Kenney Factory Kit 모델 하나를 놓는다 (충돌 없음, 필요하면 _solid를 따로 둔다).
+## 살아 있는 마당: 컨베이어 위 박스가 흐르고, 로봇 팔·크레인·톱니가 움직인다.
+func _animate_props(delta: float) -> void:
+	_time += delta
+	for box in _belt_boxes:
+		var side := signf(box.position.x)
+		var x := absf(box.position.x) + BELT_SPEED * delta
+		if x > BELT_END:
+			x = BELT_START
+		box.position.x = x * side
+		# 벨트 양 끝에서는 작아졌다 커지며 자연스럽게 나타나고 사라진다
+		var edge := minf(x - BELT_START, BELT_END - x)
+		box.scale = Vector3.ONE * BELT_BOX_SIZE * clampf(edge / 0.4, 0.05, 1.0)
+	for i in _robot_arms.size():
+		_robot_arms[i].rotation.y = sin(_time * 0.9 + i * 1.7) * 0.7
+	_crane.rotation.y = PI / 4.0 + sin(_time * 0.25) * 0.6
+	_cog.rotation.y += delta * 1.2
+
+
 func _prop(model: String, at: Vector3, yaw: float = 0.0, size: float = 1.5) -> Node3D:
 	var scene: PackedScene = load(MODEL_DIR + model + ".glb")
 	var node: Node3D = scene.instantiate()

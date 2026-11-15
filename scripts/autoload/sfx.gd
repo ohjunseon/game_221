@@ -19,6 +19,10 @@ func _ready() -> void:
 		"unlock": _tone([392.0, 523.0, 659.0, 784.0, 1047.0, 1319.0], 0.12),
 		"door": _tone([220.0, 180.0], 0.12),
 		"rumble": _noise(2.0),
+		"coin": _tone([1568.0], 0.035),
+		"pack": _tone([440.0, 660.0, 880.0], 0.05),
+		"golden": _tone([1047.0, 1319.0, 1568.0, 2093.0], 0.06),
+		"fanfare": _tone([523.0, 659.0, 784.0, 1047.0, 784.0, 1047.0, 1319.0], 0.09),
 	}
 	for i in VOICES:
 		var player := AudioStreamPlayer.new()

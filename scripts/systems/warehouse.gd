@@ -33,6 +33,9 @@ const WALL_COLORS := {
 static var _toy_shape: BoxShape3D
 
 var warehouse_id: int = 1
+## 새로 만드는 장난감이 황금일 확률. 테스트는 0으로 고정한다.
+static var golden_chance: float = 0.01
+
 var is_open: bool = false
 var shelves: Array[Shelf] = []
 
@@ -67,7 +70,15 @@ static func make_toy(rigid: bool, type: int = -1) -> CollisionObject3D:
 	shape.position.y = TOY_COLLIDER / 2.0
 	body.add_child(shape)
 	body.add_child(Toys.make_visual(type))
+	if randf() < golden_chance:
+		gild_toy(body)
 	return body
+
+
+## 황금 장난감으로 만든다. 이 장난감이 든 박스는 코인을 10배로 준다.
+static func gild_toy(toy: Node3D) -> void:
+	toy.set_meta("golden", true)
+	Toys.gild(toy)
 
 
 func _ready() -> void:
