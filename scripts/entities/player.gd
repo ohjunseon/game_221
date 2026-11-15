@@ -211,13 +211,20 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 			Sfx.play("error")
 		return false
 
+	# 선반은 한 종류만 받는다: 정해진 종류가 없으면 마지막 박스의 종류로 정한다
+	var box_type: int = boxes[-1] if shelf.shelf_type() < 0 else shelf.shelf_type()
+	if not boxes.has(box_type):
+		if not quiet:
+			EventBus.message_shown.emit("이 선반은 %s 전용입니다" % Toys.NAMES[box_type])
+			Sfx.play("error")
+		return false
+	var matching := boxes.count(box_type)
 	var per_box := Toys.BOX_SIZE * Skills.bundle(GameState.level("bundle"))
-	var box_type: int = boxes[-1]
 	var target := shelf.tier_position(shelf.current_tier())
-	var accepted := shelf.add(boxes.size() * per_box, 1.0, box_type)
-	var used := mini(ceili(float(accepted) / per_box), boxes.size())
+	var accepted := shelf.add(matching * per_box, 1.0, box_type)
+	var used := mini(ceili(float(accepted) / per_box), matching)
 	for i in used:
-		boxes.pop_back()
+		boxes.remove_at(boxes.rfind(box_type))
 	# 황금 박스: 이미 받은 1배에 더해 나머지 9배를 준다
 	var golden_used := mini(golden_boxes, used)
 	golden_boxes -= golden_used
@@ -286,6 +293,8 @@ func _update_aim_text() -> void:
 		else:
 			var tier := shelf.current_tier()
 			text = "%d단: %s" % [tier, Shelf.posture_text(Shelf.required_posture(tier))]
+		if shelf.shelf_type() >= 0 and not shelf.is_full():
+			text = "%s 선반 · %s" % [Toys.NAMES[shelf.shelf_type()], text]
 	elif target is Node3D and (target as Node3D).is_in_group("toy"):
 		text = "좌클릭: 줍기"
 	elif target is Node3D and (target as Node3D).is_in_group("door"):

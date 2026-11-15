@@ -32,7 +32,6 @@ var _highlight: MeshInstance3D
 var _label: Label3D
 var _toy_mesh: BoxMesh
 var _visuals: Array[MeshInstance3D] = []
-var _pending_type: int = -1
 var _celebrated: bool = false
 ## _ready가 끝난 뒤에 들어오는 박스만 튀어나오는 연출을 한다
 var _live: bool = false
@@ -94,12 +93,20 @@ func tier_position(tier: int) -> Vector3:
 ## 장난감을 넣고 실제로 들어간 개수를 돌려준다.
 ## toy_type: 선반에 보일 박스의 장난감 형태 (-1이면 무작위)
 func add(amount: int, coin_mult: float = 1.0, toy_type: int = -1) -> int:
-	_pending_type = toy_type
-	var accepted := GameState.store_in_shelf(
-		warehouse_id, floor_index, shelf_index, amount, coin_mult
+	return GameState.store_in_shelf(
+		warehouse_id, floor_index, shelf_index, amount, coin_mult, toy_type
 	)
-	_pending_type = -1
-	return accepted
+
+
+## 이 선반의 장난감 종류 (아직 정해지지 않았으면 -1)
+func shelf_type() -> int:
+	return GameState.get_shelf_type(_key)
+
+
+## 한 단에 박스 10칸. 용량이 작은 선반(박스 100개 미만)은 박스 수만큼만 보인다.
+func box_slots() -> int:
+	@warning_ignore("integer_division")
+	return mini(TIER_COUNT * SLOTS_PER_TIER, capacity() / Toys.BOX_SIZE)
 
 
 func _on_shelf_changed(key: String) -> void:
@@ -113,27 +120,30 @@ func _on_shelf_changed(key: String) -> void:
 
 func _sync() -> void:
 	@warning_ignore("integer_division")
-	var target := mini(stored() * TIER_COUNT * SLOTS_PER_TIER / capacity(), TIER_COUNT * SLOTS_PER_TIER)
+	var target := mini(stored() * box_slots() / capacity(), box_slots())
 	while _visuals.size() > target:
 		_visuals.pop_back().queue_free()
 	while _visuals.size() < target:
 		_add_toy_visual(_visuals.size())
+	var type := shelf_type()
+	var type_name := "빈 선반" if type < 0 else Toys.NAMES[type]
 	if is_full():
-		_label.text = "완성!"
+		_label.text = "%s 완성!" % type_name
 		_label.modulate = Color(0.5, 1.0, 0.5)
 	else:
-		_label.text = "%s / %s" % [Skills.fmt(stored()), Skills.fmt(capacity())]
-		_label.modulate = Color.WHITE
+		_label.text = "%s\n%s / %s" % [type_name, Skills.fmt(stored()), Skills.fmt(capacity())]
+		_label.modulate = Color.WHITE if type < 0 else Toys.COLORS[type].lightened(0.35)
 	_highlight.visible = not is_full()
 	_highlight.position.y = (current_tier() - 0.5) * TIER_HEIGHT
 
 
 func _add_toy_visual(index: int) -> void:
+	# 박스 번호 → 단: 박스가 100개면 한 단에 10칸, 적으면 단에 고르게 나눈다
 	@warning_ignore("integer_division")
-	var tier := index / SLOTS_PER_TIER
-	var slot := index % SLOTS_PER_TIER
-	var type := _pending_type if _pending_type >= 0 else Toys.random_type()
-	var toy := Toys.make_box(type, TOY_VISUAL_SIZE)
+	var tier := index * TIER_COUNT / box_slots()
+	@warning_ignore("integer_division")
+	var slot := index - (tier * box_slots() + TIER_COUNT - 1) / TIER_COUNT
+	var toy := Toys.make_box(maxi(shelf_type(), 0), TOY_VISUAL_SIZE)
 	var slot_width := (WIDTH - 0.1) / SLOTS_PER_TIER
 	toy.position = Vector3(
 		-WIDTH / 2.0 + 0.05 + slot_width * (slot + 0.5),

@@ -134,7 +134,7 @@ func _ready() -> void:
 
 	# 황금 장난감: 한 개라도 섞인 박스는 코인 10배
 	for i in Toys.BOX_SIZE:
-		var golden_toy := Warehouse.make_toy(false, 1)
+		var golden_toy := Warehouse.make_toy(false, type_a)
 		add_child(golden_toy)
 		if i == 2:
 			Warehouse.gild_toy(golden_toy)
@@ -165,13 +165,24 @@ func _ready() -> void:
 	GameState.skill_points = 1
 	_check(GameState.breakthrough("long_arm") and GameState.cap("long_arm") == 20, "한계 돌파로 20")
 
+	# 선반은 한 종류만: 처음 넣은 종류로 정해지고 다른 종류는 거절한다
+	var third := warehouses[0].shelves[2]
+	_check(third.shelf_type() == -1, "새 선반은 종류가 정해지지 않음")
 	player.boxes.append(type_a)
 	player.boxes.append(type_b)
 	var before := GameState.total_sorted
-	var third := warehouses[0].shelves[2]
 	player.try_place(third, Shelf.required_posture(third.current_tier()))
-	var expected := 2 * Toys.BOX_SIZE * Skills.bundle(10)
-	_check(GameState.total_sorted - before == expected, "묶음 Lv10: 박스 2개가 %d개로 계산" % expected)
+	var expected := Toys.BOX_SIZE * Skills.bundle(10)
+	_check(third.shelf_type() == type_b, "마지막 박스의 종류가 선반 종류가 됨")
+	_check(GameState.total_sorted - before == expected, "묶음 Lv10: 같은 종류 박스 1개만 %d개로 계산" % expected)
+	_check(player.boxes.size() == 1 and player.boxes[0] == type_a, "다른 종류 박스는 손에 남음")
+	_check(not player.try_place(third, Shelf.required_posture(third.current_tier())), "다른 종류 선반에는 넣기 불가")
+	_check(
+		GameState.store_in_shelf(1, 0, 2, 100, 1.0, type_a) == 0, "다른 종류는 저장소에서도 거절"
+	)
+	player.boxes.clear()
+	var packed_boxes := third.box_slots()
+	_check(packed_boxes == 100 and warehouses[0].shelves[0].box_slots() == 5, "박스 칸 수: 큰 선반 100, 용량 20 선반 5")
 
 	# 창고 해금, 문, 와르르
 	_check(not GameState.is_warehouse_unlocked(2), "1,000개 전에는 창고 2 잠김")

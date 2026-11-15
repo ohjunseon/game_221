@@ -26,6 +26,8 @@ var skill_points: int = 0
 var skill_levels: Dictionary = {}
 var skill_caps: Dictionary = {}
 var shelf_stored: Dictionary = {}
+## 선반별 장난감 종류 (key → 종류). 처음 넣은 종류로 정해지며 이후 바뀌지 않는다
+var shelf_types: Dictionary = {}
 var quest_index: int = 0
 var doors_opened: Array[int] = []
 var wareureu_done: bool = false
@@ -63,12 +65,25 @@ func get_shelf_stored(key: String) -> int:
 	return int(shelf_stored.get(key, 0))
 
 
+## 선반의 종류 (아직 정해지지 않았으면 -1)
+func get_shelf_type(key: String) -> int:
+	return int(shelf_types.get(key, -1))
+
+
 ## 선반에 넣고 실제로 들어간 개수를 돌려준다.
+## toy_type: 넣는 박스의 종류. 선반 종류가 정해져 있고 다르면 넣지 않는다.
+## -1(자동 정리)이면 정해진 종류를 따르고, 없으면 선반 번호로 종류를 배정한다.
 func store_in_shelf(
-	warehouse_id: int, floor_index: int, shelf_index: int, amount: int, coin_mult: float = 1.0
+	warehouse_id: int, floor_index: int, shelf_index: int, amount: int,
+	coin_mult: float = 1.0, toy_type: int = -1
 ) -> int:
 	var key := shelf_key(warehouse_id, floor_index, shelf_index)
 	var capacity := SHELF_CAPACITIES[shelf_index]
+	var shelf_type := get_shelf_type(key)
+	if shelf_type >= 0 and toy_type >= 0 and toy_type != shelf_type:
+		return 0
+	if shelf_type < 0:
+		shelf_types[key] = toy_type if toy_type >= 0 else shelf_index % Toys.count()
 	var before := get_shelf_stored(key)
 	var accepted := mini(amount, capacity - before)
 	if accepted <= 0:
@@ -267,6 +282,7 @@ func to_dict() -> Dictionary:
 		"skill_levels": skill_levels,
 		"skill_caps": skill_caps,
 		"shelf_stored": shelf_stored,
+		"shelf_types": shelf_types,
 		"quest_index": quest_index,
 		"doors_opened": doors_opened,
 		"wareureu_done": wareureu_done,
@@ -291,6 +307,7 @@ func from_dict(data: Dictionary) -> void:
 	skill_levels = _int_dict(data.get("skill_levels", {}))
 	skill_caps = _int_dict(data.get("skill_caps", {}))
 	shelf_stored = _int_dict(data.get("shelf_stored", {}))
+	shelf_types = _int_dict(data.get("shelf_types", {}))
 	_auto_accum = 0.0
 	_active_until.clear()
 	_ready_at.clear()
