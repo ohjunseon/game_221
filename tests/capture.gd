@@ -23,7 +23,7 @@ func _ready() -> void:
 		GameState.store_in_shelf(1, 0, i, GameState.BOXES_PER_SHELF)
 	GameState.store_in_shelf(1, 0, 3, 37)
 	GameState.store_in_shelf(1, 0, 6, 12)
-	_look_from(Vector3(0.0, 0.9, -24.5), 0.0, 0.05)
+	_look_from(Vector3(0.0, 0.9, -26.0), 0.0, 0.05)
 	await _wait(20)
 	await _shot("2_shelves")
 
@@ -63,7 +63,7 @@ func _ready() -> void:
 	# 스킬 슬롯: 자동 정리와 대박 타임을 켠 상태
 	_player.use_skill(2)
 	_player.use_skill(3)
-	_look_from(Vector3(4.0, 0.9, -21.5), 0.25, 0.15)
+	_look_from(Vector3(5.6, 0.9, -34.0), 0.3, 0.1)
 	await _wait(10)
 	await _shot("4_ramp")
 
@@ -75,9 +75,9 @@ func _ready() -> void:
 
 	# 가장 큰 창고 4: 문 안쪽에서 선반 줄을 바라본다 (선반 100개씩 2층)
 	GameState.unlocked_warehouses = [1, 2, 3, 4]
-	for i in 36:
+	for i in 60:
 		GameState.store_in_shelf(4, 0, i, GameState.BOXES_PER_SHELF if i % 3 else 40)
-	_look_from(Vector3(-21.0, 0.9, 0.0), PI / 2.0, 0.12)
+	_look_from(Vector3(-23.0, 0.9, 0.0), PI / 2.0, 0.08)
 	await _wait(60)
 	await _shot("6_big_warehouse")
 

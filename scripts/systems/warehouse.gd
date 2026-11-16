@@ -1,21 +1,26 @@
 class_name Warehouse
 extends Node3D
-## 창고 한 동: 벽, 문, 2개 층(뒷벽 경사로), 층마다 줄지어 놓은 선반, 문 앞 바닥에 흩어진 장난감.
+## 창고 한 동: 벽, 문, 2개 층(뒷벽 경사로), 층마다 통로 양쪽에 선 선반 줄, 문 앞 입고장에 흩어진 장난감.
 ## 창고마다 한 층의 선반 수(GameState.SHELVES_PER_FLOOR)가 달라서 크기도 다르다.
 ## 문은 로컬 +Z 방향에 있다.
 
 ## 문이 있는 앞벽이 마당 가운데에서 떨어진 거리 (창고 크기와 상관없이 같다)
 const DOOR_DISTANCE := 19.0
-## 창고 번호 → 한 줄에 놓는 선반 수. 줄 수는 한 층의 선반 수에서 정해진다
-const COLUMNS := {1: 5, 2: 8, 3: 10, 4: 12}
+## 실제 창고식 배치: 통로가 문에서 안쪽으로 뻗고, 통로 양쪽에 선반 줄이 통로를 보고 선다.
+## 이웃한 통로의 선반 줄은 등을 맞댄다. 통로 하나의 선반 수는 GameState.SHELVES_PER_AISLE.
 const SHELF_PITCH := 2.1
-const ROW_PITCH := 3.0
-const MIN_WIDTH := 16.0
-const SIDE_MARGIN := 2.0
-## 뒷벽에서 맨 뒷줄 선반 가운데까지 (경사로 자리 포함)
+const AISLE_WIDTH := 2.6
+## 통로 가운데에서 다음 통로 가운데까지 (통로 폭 + 등 맞댄 선반 두 줄 + 틈)
+const AISLE_PITCH := 3.7
+## 한 줄의 선반이 이보다 많으면 줄 가운데에 가로 통로를 둔다
+const CROSS_AISLE_BAYS := 5
+const CROSS_AISLE_WIDTH := 2.6
+const MIN_WIDTH := 14.0
+const SIDE_MARGIN := 0.5
+## 뒷벽에서 선반 줄 끝까지 (경사로 자리 포함)
 const BACK_ZONE := 4.0
-## 맨 앞줄 선반 가운데에서 문이 있는 앞벽까지 (장난감이 흩어지는 자리 포함)
-const FRONT_ZONE := 9.0
+## 선반 줄 앞 끝에서 문이 있는 앞벽까지 (입고장: 장난감이 흩어지는 자리)
+const FRONT_ZONE := 8.5
 const WALL_HEIGHT := 8.0
 const FLOOR_HEIGHT := 4.0
 const DOOR_WIDTH := 4.0
@@ -60,16 +65,36 @@ var _lights: Array[OmniLight3D] = []
 var _door_tween: Tween
 
 
-## 창고 번호의 줄 수 (한 층의 선반을 한 줄에 COLUMNS개씩 놓는다)
-static func rows_of(warehouse_id: int) -> int:
-	return ceili(float(GameState.shelves_per_floor(warehouse_id)) / COLUMNS[warehouse_id])
+## 창고 번호의 통로 수
+static func aisles_of(warehouse_id: int) -> int:
+	@warning_ignore("integer_division")
+	return GameState.shelves_per_floor(warehouse_id) / GameState.SHELVES_PER_AISLE[warehouse_id]
 
 
-## 창고 번호의 크기: x = 가로, y = 세로(깊이). 선반이 많을수록 크다.
+## 통로 한쪽 줄의 선반 수
+static func bays_of(warehouse_id: int) -> int:
+	@warning_ignore("integer_division")
+	return GameState.SHELVES_PER_AISLE[warehouse_id] / 2
+
+
+## 줄 가운데 가로 통로의 폭 (줄이 짧으면 0)
+static func cross_aisle_of(warehouse_id: int) -> float:
+	return CROSS_AISLE_WIDTH if bays_of(warehouse_id) > CROSS_AISLE_BAYS else 0.0
+
+
+## 창고 번호의 크기: x = 가로, y = 세로(깊이). 통로 수와 줄 길이에서 정해진다.
 static func size_of(warehouse_id: int) -> Vector2:
-	var wide := maxf(MIN_WIDTH, COLUMNS[warehouse_id] * SHELF_PITCH + 2.0 * SIDE_MARGIN)
-	var deep := BACK_ZONE + ROW_PITCH * (rows_of(warehouse_id) - 1) + FRONT_ZONE
+	var wide := maxf(MIN_WIDTH, aisles_of(warehouse_id) * AISLE_PITCH + 2.0 * SIDE_MARGIN)
+	var deep := (
+		BACK_ZONE + bays_of(warehouse_id) * SHELF_PITCH
+		+ cross_aisle_of(warehouse_id) + FRONT_ZONE
+	)
 	return Vector2(wide, deep)
+
+
+## 통로 가운데의 로컬 x
+static func aisle_x(warehouse_id: int, aisle: int) -> float:
+	return (aisle - (aisles_of(warehouse_id) - 1) / 2.0) * AISLE_PITCH
 
 
 ## 바닥에 놓이는 장난감 하나. rigid면 물리로 굴러다닌다(와르르용). type이 -1이면 무작위.
@@ -113,6 +138,7 @@ func _ready() -> void:
 	_build_shell()
 	_build_upper_floor()
 	_build_shelves()
+	_build_markings()
 	_build_door()
 	_build_signs()
 	_build_lights()
@@ -323,31 +349,94 @@ func _build_upper_floor() -> void:
 	_gate.add_child(gate_label)
 
 
-## 선반은 줄을 지어 놓는다. 선반 0번이 문에 가장 가까운 줄의 왼쪽 끝이고,
-## 줄마다 왼쪽에서 오른쪽으로, 줄은 문 쪽에서 안쪽(뒷벽)으로 채운다.
-## 마지막 줄이 덜 차면 가운데로 모은다. 선반 앞면(로컬 +Z)은 문 쪽을 본다.
+## 선반 번호는 통로 순서다: 통로 A의 왼쪽 줄(문 쪽 → 안쪽), 오른쪽 줄, 그다음 통로 B…
+## 선반 앞면(로컬 +Z)은 통로를 본다.
 func _build_shelves() -> void:
-	var columns: int = COLUMNS[warehouse_id]
 	var per_floor := GameState.shelves_per_floor(warehouse_id)
-	var front_row_z := depth / 2.0 - FRONT_ZONE
+	var per_aisle: int = GameState.SHELVES_PER_AISLE[warehouse_id]
+	var bays := bays_of(warehouse_id)
+	var cross := cross_aisle_of(warehouse_id)
+	var front_z := depth / 2.0 - FRONT_ZONE
 	for floor_index in GameState.FLOORS_PER_WAREHOUSE:
 		for shelf_index in per_floor:
 			@warning_ignore("integer_division")
-			var row := shelf_index / columns
-			var column := shelf_index % columns
-			var in_row := mini(columns, per_floor - row * columns)
+			var aisle := shelf_index / per_aisle
+			var within := shelf_index % per_aisle
+			var side := -1.0 if within < bays else 1.0
+			var bay := within % bays
+			var z := front_z - SHELF_PITCH * (bay + 0.5)
+			@warning_ignore("integer_division")
+			if bay >= bays / 2:
+				z -= cross
 			var shelf := Shelf.new()
 			shelf.name = "Shelf_%d_%d" % [floor_index + 1, shelf_index + 1]
 			shelf.warehouse_id = warehouse_id
 			shelf.floor_index = floor_index
 			shelf.shelf_index = shelf_index
 			shelf.position = Vector3(
-				(column - (in_row - 1) / 2.0) * SHELF_PITCH,
+				aisle_x(warehouse_id, aisle) + side * (AISLE_WIDTH + Shelf.DEPTH) / 2.0,
 				floor_index * FLOOR_HEIGHT,
-				front_row_z - ROW_PITCH * row
+				z
 			)
+			shelf.rotation.y = -side * PI / 2.0
 			add_child(shelf)
 			shelves.append(shelf)
+
+
+## 입고장 바닥선, 통로 바닥선, 통로 입구 표지판 (층마다)
+func _build_markings() -> void:
+	var yellow := Look.matte(Color(1.0, 0.82, 0.2))
+	var line := 0.12
+	var half_x := minf(width / 2.0 - 1.5, SPAWN_MAX_HALF_X) + 0.4
+	var dock_front := depth / 2.0 - SPAWN_FROM_FRONT + 0.4
+	var dock_back := dock_front - SPAWN_DEPTH - 0.8
+	var rack_front := depth / 2.0 - FRONT_ZONE
+	var rack_back := -depth / 2.0 + BACK_ZONE
+	var rack_length := rack_front - rack_back
+	for floor_index in GameState.FLOORS_PER_WAREHOUSE:
+		var y := floor_index * FLOOR_HEIGHT + 0.01
+		# 입고장 테두리
+		for z: float in [dock_front, dock_back]:
+			_deco(Vector3(half_x * 2.0, 0.02, line), Vector3(0.0, y, z), yellow)
+		for x: float in [-half_x, half_x]:
+			_deco(
+				Vector3(line, 0.02, dock_front - dock_back),
+				Vector3(x, y, (dock_front + dock_back) / 2.0), yellow
+			)
+		var dock_label := Label3D.new()
+		dock_label.text = "입고장"
+		dock_label.font_size = 96
+		dock_label.pixel_size = 0.01
+		dock_label.modulate = Color(1.0, 0.82, 0.2, 0.75)
+		dock_label.outline_size = 0
+		dock_label.rotation.x = -PI / 2.0
+		dock_label.position = Vector3(0.0, y + 0.01, dock_back + 0.7)
+		add_child(dock_label)
+
+		for aisle in aisles_of(warehouse_id):
+			var x := aisle_x(warehouse_id, aisle)
+			# 통로 양쪽 바닥선
+			for side: float in [-1.0, 1.0]:
+				_deco(
+					Vector3(line, 0.02, rack_length),
+					Vector3(x + side * (AISLE_WIDTH / 2.0 - 0.2), y, rack_back + rack_length / 2.0),
+					yellow
+				)
+			# 통로 입구 표지판: 통로 글자와 이 통로가 맡는 장난감 종류
+			var type := GameState.default_shelf_type(
+				warehouse_id, floor_index, aisle * GameState.SHELVES_PER_AISLE[warehouse_id]
+			)
+			var sign_at := Vector3(x, floor_index * FLOOR_HEIGHT + 3.2, rack_front + 0.1)
+			_deco(Vector3(2.5, 0.6, 0.06), sign_at, Look.matte(Toys.COLORS[type].darkened(0.45)))
+			var sign := Label3D.new()
+			sign.text = "%s · %s" % [char(65 + aisle), Toys.NAMES[type]]
+			sign.font_size = 64
+			sign.outline_size = 10
+			sign.outline_modulate = Color(0.1, 0.12, 0.22)
+			sign.pixel_size = 0.006
+			sign.position = sign_at + Vector3(0.0, 0.0, 0.05)
+			sign.visibility_range_end = 45.0
+			add_child(sign)
 
 
 func _build_door() -> void:
@@ -402,12 +491,23 @@ func _build_signs() -> void:
 
 
 func _build_lights() -> void:
-	# 층마다 천장에 길쭉한 전등을 약 9m 간격으로 달고, 하나 걸러 하나에 실제 조명을 단다
+	# 층마다 통로 위 천장에 길쭉한 전등을 줄지어 단다 (모양만, 한 통로에 한 덩어리)
 	var lamp := Look.glow(Color(1.0, 0.96, 0.82), 3.0)
 	var count_x := maxi(2, roundi(width / 9.0))
 	var count_z := maxi(2, roundi(depth / 9.0))
 	for floor_index in GameState.FLOORS_PER_WAREHOUSE:
 		var ceiling := FLOOR_HEIGHT - SLAB_THICKNESS if floor_index == 0 else WALL_HEIGHT
+		for aisle in aisles_of(warehouse_id):
+			for j in count_z * 2:
+				_deco(
+					Vector3(0.4, 0.08, 2.4),
+					Vector3(
+						aisle_x(warehouse_id, aisle), ceiling - 0.05,
+						-depth / 2.0 + depth * (j + 0.5) / (count_z * 2)
+					),
+					lamp
+				)
+		# 실제 조명은 약 9m 격자에서 하나 걸러 하나에만 단다
 		for i in count_x:
 			for j in count_z:
 				var at := Vector3(
@@ -415,7 +515,6 @@ func _build_lights() -> void:
 					ceiling - 0.05,
 					-depth / 2.0 + depth * (j + 0.5) / count_z
 				)
-				_deco(Vector3(0.5, 0.08, 3.0), at, lamp)
 				if (i + j) % 2 != 0:
 					continue
 				var light := OmniLight3D.new()

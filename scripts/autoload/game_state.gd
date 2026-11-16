@@ -7,6 +7,8 @@ const FLOORS_PER_WAREHOUSE := 2
 const SHELF_TIERS := 10
 ## 창고 번호 → 한 층의 선반 수. 창고가 클수록 선반이 많다 (2층이라 창고당 ×2)
 const SHELVES_PER_FLOOR := {1: 10, 2: 40, 3: 50, 4: 100}
+## 창고 번호 → 통로 하나의 선반 수 (통로 양쪽에 반씩). 통로 수 = 한 층 선반 수 / 이 값
+const SHELVES_PER_AISLE := {1: 10, 2: 10, 3: 10, 4: 20}
 ## 모든 선반은 똑같이 박스 100개(10단 × 10칸). 박스 1개에 담긴 장난감 수는 묶음 정리로 커진다
 const BOXES_PER_SHELF := 100
 ## 스킬 포인트: 정리한 박스 누적이 5·n·(n+1)개(10, 30, 60, 100, ...)에 닿을 때마다 1개
@@ -78,6 +80,14 @@ static func shelves_per_floor(warehouse_id: int) -> int:
 	return int(SHELVES_PER_FLOOR[warehouse_id])
 
 
+## 통로가 맡는 장난감 종류. 자동 정리가 빈 선반에 넣을 때 따르고, 통로 표지판에 적힌다.
+## 창고와 층마다 시작 종류를 달리해 여섯 종류가 고루 나온다.
+static func default_shelf_type(warehouse_id: int, floor_index: int, shelf_index: int) -> int:
+	@warning_ignore("integer_division")
+	var aisle := shelf_index / int(SHELVES_PER_AISLE[warehouse_id])
+	return (aisle + floor_index * 3 + warehouse_id - 1) % Toys.count()
+
+
 ## 박스 1개에 담긴 장난감 수 (묶음 정리 레벨에 따라 커진다)
 func toys_per_box() -> int:
 	return Toys.BOX_SIZE * Skills.bundle(level("bundle"))
@@ -104,7 +114,10 @@ func store_in_shelf(
 	if accepted <= 0:
 		return 0
 	if shelf_type < 0:
-		shelf_types[key] = toy_type if toy_type >= 0 else shelf_index % Toys.count()
+		shelf_types[key] = (
+			toy_type if toy_type >= 0
+			else default_shelf_type(warehouse_id, floor_index, shelf_index)
+		)
 	shelf_stored[key] = before + accepted
 	var toys := accepted * toys_per_box()
 	total_sorted += toys
