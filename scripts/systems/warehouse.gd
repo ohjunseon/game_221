@@ -92,6 +92,14 @@ static func size_of(warehouse_id: int) -> Vector2:
 	return Vector2(wide, deep)
 
 
+## 통로 가운데에서 선반 줄 가운데까지의 거리.
+## 통로가 하나뿐인 창고(창고 1)는 선반 줄을 양쪽 벽에 붙인다.
+static func row_offset(warehouse_id: int) -> float:
+	if aisles_of(warehouse_id) == 1:
+		return size_of(warehouse_id).x / 2.0 - WALL_THICKNESS / 2.0 - Shelf.DEPTH / 2.0 - 0.05
+	return (AISLE_WIDTH + Shelf.DEPTH) / 2.0
+
+
 ## 통로 가운데의 로컬 x
 static func aisle_x(warehouse_id: int, aisle: int) -> float:
 	return (aisle - (aisles_of(warehouse_id) - 1) / 2.0) * AISLE_PITCH
@@ -374,7 +382,7 @@ func _build_shelves() -> void:
 			shelf.floor_index = floor_index
 			shelf.shelf_index = shelf_index
 			shelf.position = Vector3(
-				aisle_x(warehouse_id, aisle) + side * (AISLE_WIDTH + Shelf.DEPTH) / 2.0,
+				aisle_x(warehouse_id, aisle) + side * row_offset(warehouse_id),
 				floor_index * FLOOR_HEIGHT,
 				z
 			)
@@ -419,7 +427,10 @@ func _build_markings() -> void:
 			for side: float in [-1.0, 1.0]:
 				_deco(
 					Vector3(line, 0.02, rack_length),
-					Vector3(x + side * (AISLE_WIDTH / 2.0 - 0.2), y, rack_back + rack_length / 2.0),
+					Vector3(
+						x + side * (row_offset(warehouse_id) - Shelf.DEPTH / 2.0 - 0.2),
+						y, rack_back + rack_length / 2.0
+					),
 					yellow
 				)
 			# 통로 입구 표지판: 통로 글자와 이 통로가 맡는 장난감 종류
