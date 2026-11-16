@@ -91,6 +91,40 @@ func _ready() -> void:
 	_check(GameState.total_sorted == 4 and GameState.coins >= 4, "박스 1개 = 4개 정리")
 	_check(player.boxes.is_empty(), "넣은 뒤 빈손")
 
+	# 바닥 재고는 한정: 창고 1의 1층 = 선반 10개 × 100박스 × 4개 - 이미 넣은 박스 1개
+	var ground_before := GameState.ground_toys(1, 0)
+	_check(ground_before == 10 * 100 * Toys.BOX_SIZE - Toys.BOX_SIZE, "1층 바닥 장난감 재고 (실제 %d)" % ground_before)
+	# 우클릭: 장난감·박스를 내려놓고 다시 줍는다. 재고는 줍고 버린 만큼만 오르내린다
+	var fresh: Array = []
+	for candidate in get_tree().get_nodes_in_group("toy"):
+		if int(candidate.get_meta("toy_type")) == type_a and not candidate.is_queued_for_deletion():
+			fresh.append(candidate)
+	player.try_pick(fresh[0])
+	player.try_pick(fresh[1])
+	_check(player.loose == 2 and GameState.ground_toys(1, 0) == ground_before - 2, "줍는 만큼 바닥 재고가 줄어듦")
+	_check(player.drop_one() and player.loose == 1, "우클릭: 장난감 한 개 버림")
+	_check(player.drop_one() and player.loose == 0 and player.held_type == -1, "다 버리면 빈손")
+	_check(GameState.ground_toys(1, 0) == ground_before, "버린 장난감은 바닥 재고로 돌아감")
+	var dropped_toy: Node = null
+	for candidate in get_tree().get_nodes_in_group("toy"):
+		if candidate.get_meta("dropped", false):
+			dropped_toy = candidate
+	_check(dropped_toy != null and player.try_pick(dropped_toy), "버린 장난감을 다시 주울 수 있음")
+	player.drop_one()
+	for candidate in get_tree().get_nodes_in_group("toy"):
+		if candidate.get_meta("dropped", false):
+			candidate.remove_from_group("toy")
+			candidate.queue_free()
+	GameState.dropped_toys.clear()
+	player.boxes.append(type_a)
+	_check(player.drop_one() and player.boxes.is_empty(), "우클릭: 박스 한 개 버림")
+	var dropped_box: Node = get_tree().get_first_node_in_group("box_item")
+	_check(dropped_box != null, "버린 박스가 바닥에 놓임")
+	_check(player.try_pick_box(dropped_box) and player.boxes.size() == 1, "버린 박스를 다시 주울 수 있음")
+	player.boxes.clear()
+	GameState.carried_toys.clear()
+	GameState.dropped_toys.clear()
+
 	# 첫 선반을 자세에 맞게 채운다
 	var postures_used := {}
 	while not shelf.is_full():

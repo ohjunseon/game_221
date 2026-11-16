@@ -37,6 +37,10 @@ const TOY_LAYER := 2
 const SPAWN_FROM_FRONT := 1.0
 const SPAWN_DEPTH := 6.0
 const SPAWN_MAX_HALF_X := 9.0
+## 더미: 한 층에 보이는 장난감은 최대 TOY_TARGET개(8×6 + 6×4 + 4×3 + 2×3). 총량은 바닥 재고로 따로 센다
+const HEAP_LAYERS: Array[Vector2i] = [Vector2i(8, 6), Vector2i(6, 4), Vector2i(4, 3), Vector2i(2, 3)]
+const HEAP_SPACING := 0.42
+const HEAP_LAYER_HEIGHT := 0.26
 const WALL_COLORS := {
 	1: Color(0.56, 0.76, 0.96),
 	2: Color(0.6, 0.88, 0.7),
@@ -61,6 +65,8 @@ var _door_material: StandardMaterial3D
 var _status_label: Label3D
 var _gate: StaticBody3D
 var _toy_roots: Array[Node3D] = []
+## 층별 더미 자리에 놓인 장난감 (빈 자리는 null)
+var _heaps: Array = []
 var _lights: Array[OmniLight3D] = []
 var _door_tween: Tween
 
@@ -106,7 +112,7 @@ static func aisle_x(warehouse_id: int, aisle: int) -> float:
 
 
 ## 바닥에 놓이는 장난감 하나. rigid면 물리로 굴러다닌다(와르르용). type이 -1이면 무작위.
-static func make_toy(rigid: bool, type: int = -1) -> CollisionObject3D:
+static func make_toy(rigid: bool, type: int = -1, allow_golden: bool = true) -> CollisionObject3D:
 	if _toy_shape == null:
 		_toy_shape = BoxShape3D.new()
 		_toy_shape.size = Vector3.ONE * TOY_COLLIDER
@@ -128,7 +134,7 @@ static func make_toy(rigid: bool, type: int = -1) -> CollisionObject3D:
 	shape.position.y = TOY_COLLIDER / 2.0
 	body.add_child(shape)
 	body.add_child(Toys.make_visual(type))
-	if randf() < golden_chance:
+	if allow_golden and randf() < golden_chance:
 		gild_toy(body)
 	return body
 
@@ -155,6 +161,7 @@ func _ready() -> void:
 		root.name = "Toys%d" % (floor_index + 1)
 		add_child(root)
 		_toy_roots.append(root)
+		_heaps.append([])
 
 	var timer := Timer.new()
 	timer.wait_time = 1.0
@@ -244,28 +251,88 @@ func _refill() -> void:
 			GameState.is_floor_active(warehouse_id, floor_index)
 			and not GameState.is_floor_complete(warehouse_id, floor_index)
 		)
-		var alive := 0
-		for toy in root.get_children():
-			if toy.is_queued_for_deletion():
-				continue
-			if active:
-				alive += 1
-			else:
+		if not active:
+			for toy in root.get_children():
 				toy.remove_from_group("toy")
 				toy.queue_free()
-		if not active:
+			_heaps[floor_index] = []
 			continue
-		var half_x := minf(width / 2.0 - 1.5, SPAWN_MAX_HALF_X)
-		var front_z := depth / 2.0 - SPAWN_FROM_FRONT
-		for i in TOY_TARGET - alive:
-			var toy := make_toy(false)
-			toy.position = Vector3(
-				randf_range(-half_x, half_x),
-				floor_index * FLOOR_HEIGHT,
-				randf_range(front_z - SPAWN_DEPTH, front_z)
-			)
-			toy.rotation.y = randf() * TAU
-			root.add_child(toy)
+		_update_heap(floor_index, root)
+
+
+## 더미 자리: 층층이 쌓은 봉우리 모양. 아래 층부터 순서대로 놓이고, 맨 위부터 줄어든다.
+func _heap_slots() -> Array[Vector3]:
+	var slots: Array[Vector3] = []
+	var center_z := depth / 2.0 - SPAWN_FROM_FRONT - SPAWN_DEPTH / 2.0
+	for layer in HEAP_LAYERS.size():
+		var grid: Vector2i = HEAP_LAYERS[layer]
+		for row in grid.y:
+			for column in grid.x:
+				slots.append(Vector3(
+					(column - (grid.x - 1) / 2.0) * HEAP_SPACING,
+					layer * HEAP_LAYER_HEIGHT,
+					center_z + (row - (grid.y - 1) / 2.0) * HEAP_SPACING
+				))
+	return slots
+
+
+## 바닥에 남은 장난감만큼만 더미를 쌓는다. 장난감이 집혀 빈 자리가 생기면 맨 위 장난감이 내려와 메운다.
+func _update_heap(floor_index: int, root: Node3D) -> void:
+	var key := GameState.floor_key(warehouse_id, floor_index)
+	var slots := _heap_slots()
+	var heap: Array = _heaps[floor_index]
+	heap.resize(slots.size())
+	for i in heap.size():
+		var toy: Variant = heap[i]
+		if toy != null and (not is_instance_valid(toy) or toy.is_queued_for_deletion() or not (toy as Node).is_in_group("toy")):
+			heap[i] = null
+	var heap_target := clampi(
+		GameState.ground_toys(warehouse_id, floor_index) - int(GameState.dropped_toys.get(key, 0)),
+		0, mini(TOY_TARGET, slots.size())
+	)
+	var count := heap.count(null)
+	var alive := heap.size() - count
+	# 재고보다 많이 놓여 있으면(자동 정리로 줄었을 때) 맨 위부터 치운다
+	var top := heap.size() - 1
+	while alive > heap_target and top >= 0:
+		if heap[top] != null:
+			(heap[top] as Node).remove_from_group("toy")
+			(heap[top] as Node).queue_free()
+			heap[top] = null
+			alive -= 1
+		top -= 1
+	# 빈 자리는 맨 위 장난감이 내려와 메운다
+	var hole := 0
+	top = heap.size() - 1
+	while true:
+		while hole < heap.size() and heap[hole] != null:
+			hole += 1
+		while top >= 0 and heap[top] == null:
+			top -= 1
+		if hole >= top:
+			break
+		var moved := heap[top] as Node3D
+		heap[hole] = moved
+		heap[top] = null
+		moved.create_tween().tween_property(
+			moved, "position", slots[hole] + Vector3.UP * floor_index * FLOOR_HEIGHT, 0.25
+		)
+	# 재고가 남아 있는데 더미가 모자라면(처음, 또는 버린 장난감을 다시 주웠을 때) 위에 채운다
+	for i in heap.size():
+		if alive >= heap_target:
+			break
+		if heap[i] != null:
+			continue
+		var toy := make_toy(false)
+		toy.position = slots[i] + Vector3(
+			randf_range(-0.05, 0.05), floor_index * FLOOR_HEIGHT, randf_range(-0.05, 0.05)
+		)
+		toy.rotation.y = randf() * TAU
+		toy.set_meta("floor_key", key)
+		root.add_child(toy)
+		heap[i] = toy
+		alive += 1
+	_heaps[floor_index] = heap
 
 
 func _build_shell() -> void:

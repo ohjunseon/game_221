@@ -13,6 +13,7 @@ const CROUCH_LERP_SPEED := 10.0
 const RAY_MASK := 3
 const ARM_REST := Vector3(0.32, -0.42, -0.55)
 const HELD_BOX_SIZE := 0.2
+const DROPPED_BOX_SIZE := 0.45
 ## 황금 박스의 코인 배수
 const GOLDEN_MULT := 10
 
@@ -34,6 +35,10 @@ var boxes: Array[int] = []
 ## 모으는 묶음에 황금 장난감이 섞였는지, 들고 있는 박스 중 황금 박스 수
 var golden_loose := false
 var golden_boxes: int = 0
+
+## 모으는 장난감·박스가 어느 층 더미에서 왔는지 (key "창고_층"). 버리면 그 층 재고로 돌아간다
+var _loose_keys: Array[String] = []
+var box_keys: Array[String] = []
 
 var _packed := false
 var _box_tween: Tween
@@ -67,6 +72,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
 		head.rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
 		head.rotation.x = clampf(head.rotation.x, deg_to_rad(-89.0), deg_to_rad(89.0))
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		if captured:
+			drop_one()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		if captured:
+			drop_one()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		if captured:
 			_interact(false)
@@ -178,6 +189,8 @@ func _update_magnet() -> void:
 			break
 		if toy.is_queued_for_deletion():
 			continue
+		if toy.get_meta("dropped", false):
+			continue
 		if loose > 0 and int(toy.get_meta("toy_type", -1)) != held_type:
 			continue
 		var offset := toy.global_position - global_position
@@ -223,8 +236,12 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 	var target := shelf.tier_position(shelf.current_tier())
 	var used := shelf.add(matching, 1.0, box_type)
 	var accepted := used * per_box
+	_sync_keys()
 	for i in used:
-		boxes.remove_at(boxes.rfind(box_type))
+		var index := boxes.rfind(box_type)
+		GameState.add_carried(box_keys[index], -Toys.BOX_SIZE)
+		boxes.remove_at(index)
+		box_keys.remove_at(index)
 	# 황금 박스: 이미 받은 1배에 더해 나머지 9배를 준다
 	var golden_used := mini(golden_boxes, used)
 	golden_boxes -= golden_used
@@ -253,6 +270,8 @@ func _interact(quiet: bool) -> void:
 		try_place(target as Shelf, get_posture(), quiet)
 	elif target is Node3D and (target as Node3D).is_in_group("toy"):
 		try_pick(target as Node3D, quiet)
+	elif target is Node3D and (target as Node3D).is_in_group("box_item"):
+		try_pick_box(target as Node3D, quiet)
 	elif target is Node3D and (target as Node3D).is_in_group("door") and not quiet:
 		((target as Node3D).get_meta("warehouse") as Warehouse).toggle_door()
 
@@ -297,6 +316,8 @@ func _update_aim_text() -> void:
 			text = "%s 선반 · %s" % [Toys.NAMES[shelf.shelf_type()], text]
 	elif target is Node3D and (target as Node3D).is_in_group("toy"):
 		text = "좌클릭: 줍기"
+	elif target is Node3D and (target as Node3D).is_in_group("box_item"):
+		text = "좌클릭: 박스 줍기"
 	elif target is Node3D and (target as Node3D).is_in_group("door"):
 		text = "좌클릭: 문 열기/닫기"
 	if text != _aim_text:
@@ -311,12 +332,19 @@ func carry_text() -> String:
 		text += "   모으는 중: %s %d / %d" % [Toys.NAMES[held_type], loose, Toys.BOX_SIZE]
 	else:
 		text += "   같은 장난감 %d개 = 박스 1개" % Toys.BOX_SIZE
+	if loose > 0 or not boxes.is_empty():
+		text += "   우클릭: 버리기"
 	return text
 
 
 ## fly가 참이면 장난감이 손으로 날아온 뒤 사라진다(자석).
 func _take(toy: Node3D, fly: bool = false) -> void:
 	held_type = toy.get_meta("toy_type", 0)
+	var origin: String = toy.get_meta("floor_key", "")
+	GameState.add_carried(origin, 1)
+	if toy.get_meta("dropped", false):
+		GameState.add_dropped(origin, -1)
+	_loose_keys.append(origin)
 	if toy.get_meta("golden", false):
 		golden_loose = true
 		EventBus.popup_requested.emit("황금 장난감!")
@@ -337,6 +365,13 @@ func _take(toy: Node3D, fly: bool = false) -> void:
 	loose += 1
 	if loose >= Toys.BOX_SIZE:
 		boxes.append(held_type)
+		_sync_keys()
+		var box_origin := _loose_keys[0]
+		for key in _loose_keys:
+			GameState.add_carried(key, -1)
+		GameState.add_carried(box_origin, Toys.BOX_SIZE)
+		box_keys[box_keys.size() - 1] = box_origin
+		_loose_keys.clear()
 		loose = 0
 		held_type = -1
 		_packed = true
@@ -347,6 +382,120 @@ func _take(toy: Node3D, fly: bool = false) -> void:
 		else:
 			EventBus.popup_requested.emit("박스 완성!")
 		Sfx.play("pack")
+
+
+## 우클릭: 모으는 장난감이 있으면 한 개, 없으면 박스 한 개를 앞 바닥에 내려놓는다.
+## 내려놓은 것은 다시 주울 수 있고, 그 층 바닥 재고로 돌아간다.
+func drop_one() -> bool:
+	if loose > 0:
+		return _drop_toy()
+	if not boxes.is_empty():
+		return _drop_box()
+	return false
+
+
+func _drop_point() -> Vector3:
+	var forward := -global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var from := global_position + Vector3.UP * 0.9
+	var query := PhysicsRayQueryParameters3D.create(from, from + forward * 1.2, 1, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var distance := 1.0
+	if not hit.is_empty():
+		distance = maxf(0.3, from.distance_to(hit["position"]) - 0.3)
+	return from + forward * distance
+
+
+## 들고 있던 층 키가 맞지 않게 된 박스 키 배열을 박스 수에 맞춘다 (테스트가 boxes를 직접 바꿔도 안전하게)
+func _sync_keys() -> void:
+	while box_keys.size() > boxes.size():
+		box_keys.pop_back()
+	while box_keys.size() < boxes.size():
+		box_keys.append("")
+	while _loose_keys.size() > loose:
+		_loose_keys.pop_back()
+	while _loose_keys.size() < loose:
+		_loose_keys.append("")
+
+
+func _drop_toy() -> bool:
+	_sync_keys()
+	var origin: String = _loose_keys.pop_back()
+	var toy := Warehouse.make_toy(true, held_type, false) as RigidBody3D
+	toy.set_meta("floor_key", origin)
+	toy.set_meta("dropped", true)
+	if golden_loose:
+		Warehouse.gild_toy(toy)
+		golden_loose = false
+	get_parent().add_child(toy)
+	toy.global_position = _drop_point()
+	toy.rotation.y = randf() * TAU
+	GameState.add_carried(origin, -1)
+	GameState.add_dropped(origin, 1)
+	loose -= 1
+	if loose == 0:
+		held_type = -1
+		golden_loose = false
+	Sfx.play("pick", 0.7)
+	_refresh_hands()
+	return true
+
+
+func _drop_box() -> bool:
+	_sync_keys()
+	var type: int = boxes.pop_back()
+	var origin: String = box_keys.pop_back()
+	var golden := golden_boxes > 0
+	if golden:
+		golden_boxes -= 1
+	var item := RigidBody3D.new()
+	item.collision_layer = Warehouse.TOY_LAYER
+	item.collision_mask = 1
+	item.add_to_group("box_item")
+	item.set_meta("box_type", type)
+	item.set_meta("golden", golden)
+	item.set_meta("floor_key", origin)
+	var shape := CollisionShape3D.new()
+	var box_shape := BoxShape3D.new()
+	box_shape.size = Vector3.ONE * DROPPED_BOX_SIZE
+	shape.shape = box_shape
+	shape.position.y = DROPPED_BOX_SIZE / 2.0
+	item.add_child(shape)
+	var visual := Toys.make_box(type, DROPPED_BOX_SIZE)
+	Toys.set_box_golden(visual, golden)
+	visual.position.y = DROPPED_BOX_SIZE / 2.0
+	item.add_child(visual)
+	get_parent().add_child(item)
+	item.global_position = _drop_point()
+	item.rotation.y = randf() * TAU
+	GameState.add_carried(origin, -Toys.BOX_SIZE)
+	GameState.add_dropped(origin, Toys.BOX_SIZE)
+	Sfx.play("pick", 0.6)
+	_refresh_hands()
+	return true
+
+
+## 내려놓은 박스를 다시 줍는다.
+func try_pick_box(item: Node3D, quiet: bool = false) -> bool:
+	if boxes.size() >= carry_capacity():
+		if not quiet:
+			EventBus.message_shown.emit("박스를 더 들 수 없습니다. 선반에 넣으세요")
+		return false
+	_sync_keys()
+	var origin: String = item.get_meta("floor_key", "")
+	boxes.append(int(item.get_meta("box_type", 0)))
+	box_keys.append(origin)
+	if item.get_meta("golden", false):
+		golden_boxes += 1
+	GameState.add_carried(origin, Toys.BOX_SIZE)
+	GameState.add_dropped(origin, -Toys.BOX_SIZE)
+	item.remove_from_group("box_item")
+	item.queue_free()
+	Sfx.play("pick")
+	_packed = true
+	_refresh_hands()
+	return true
 
 
 ## 오른손에는 모으는 장난감, 왼손에는 완성한 박스를 보여 준다.

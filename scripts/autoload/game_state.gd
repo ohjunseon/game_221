@@ -45,6 +45,11 @@ var offline_report: Dictionary = {}
 ## 게임 내 시계(초). 액션 스킬의 지속 시간과 쿨타임 기준
 var now: float = 0.0
 
+## 층(key "창고_층")별로 손에 든 장난감 수(박스 포함)와, 바닥에 버려진 장난감 수(박스 포함).
+## 바닥 재고 = 빈 선반 칸 × 박스당 장난감 - 손에 든 수. 저장하지 않고 선반 저장량에서 매번 계산한다.
+var carried_toys: Dictionary = {}
+var dropped_toys: Dictionary = {}
+
 var _auto_accum: float = 0.0
 var _completed_emitted: bool = false
 var _active_until: Dictionary = {}
@@ -73,6 +78,36 @@ func get_shelf_stored(key: String) -> int:
 ## 선반의 종류 (아직 정해지지 않았으면 -1)
 func get_shelf_type(key: String) -> int:
 	return int(shelf_types.get(key, -1))
+
+
+static func floor_key(warehouse_id: int, floor_index: int) -> String:
+	return "%d_%d" % [warehouse_id, floor_index]
+
+
+## 한 층에서 아직 선반에 들어가지 않은 박스 칸 수
+func empty_boxes(warehouse_id: int, floor_index: int) -> int:
+	var empty := 0
+	for shelf_index in shelves_per_floor(warehouse_id):
+		empty += BOXES_PER_SHELF - get_shelf_stored(shelf_key(warehouse_id, floor_index, shelf_index))
+	return empty
+
+
+## 한 층 바닥에 남은 장난감 수 (더미 + 버려진 것). 새로 생기는 장난감은 없다.
+func ground_toys(warehouse_id: int, floor_index: int) -> int:
+	var key := floor_key(warehouse_id, floor_index)
+	return maxi(0, empty_boxes(warehouse_id, floor_index) * Toys.BOX_SIZE - int(carried_toys.get(key, 0)))
+
+
+func add_carried(key: String, amount: int) -> void:
+	if key.is_empty():
+		return
+	carried_toys[key] = int(carried_toys.get(key, 0)) + amount
+
+
+func add_dropped(key: String, amount: int) -> void:
+	if key.is_empty():
+		return
+	dropped_toys[key] = maxi(0, int(dropped_toys.get(key, 0)) + amount)
 
 
 ## 한 층의 선반 수
@@ -150,10 +185,16 @@ func auto_store(boxes: int) -> int:
 		for floor_index in FLOORS_PER_WAREHOUSE:
 			if not is_floor_active(warehouse_id, floor_index):
 				continue
+			# 바닥에 남은 장난감만큼만 정리할 수 있다
+			var allowed := mini(remaining, ground_toys(warehouse_id, floor_index) / Toys.BOX_SIZE)
+			var left := allowed
 			for shelf_index in shelves_per_floor(warehouse_id):
-				if remaining <= 0:
-					return boxes
-				remaining -= store_in_shelf(warehouse_id, floor_index, shelf_index, remaining)
+				if left <= 0:
+					break
+				left -= store_in_shelf(warehouse_id, floor_index, shelf_index, left)
+			remaining -= allowed - left
+			if remaining <= 0:
+				return boxes
 	return boxes - remaining
 
 
@@ -359,6 +400,8 @@ func from_dict(data: Dictionary) -> void:
 	shelf_types = _int_dict(data.get("shelf_types", {}))
 	boxes_total = int(data.get("boxes_total", 0))
 	_auto_accum = 0.0
+	carried_toys.clear()
+	dropped_toys.clear()
 	_active_until.clear()
 	_ready_at.clear()
 	_completed_emitted = total_sorted >= TOTAL_TOYS
