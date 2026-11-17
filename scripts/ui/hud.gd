@@ -5,6 +5,8 @@ extends CanvasLayer
 const MESSAGE_SECONDS := 2.4
 const MAX_FLYING_COINS := 12
 const COIN_FLY_GAP_MSEC := 150
+## 완료 축하 문구가 뜬 뒤 엔딩 카드가 나오기까지
+const ENDING_DELAY := 2.5
 const NAVY := Color(0.12, 0.15, 0.28)
 const INK := Color(0.08, 0.1, 0.2)
 const YELLOW := Color(1.0, 0.84, 0.32)
@@ -40,6 +42,9 @@ var _flying_coins: int = 0
 var _last_fly_msec: int = 0
 var _coin_style: StyleBoxFlat
 var _coin_tween: Tween
+var _pause: Control
+var _pause_note: Label
+var _ending_panel: Control
 
 
 func _ready() -> void:
@@ -83,6 +88,19 @@ func _ready() -> void:
 
 	_build_slots()
 	_build_menu()
+	_pause = _build_choice_panel("잠깐 쉬기", "ESC: 닫기", [
+		["계속하기", MINT, func() -> void: _set_pause_open(false)],
+		["저장하기", SKY, _on_save_pressed],
+		["저장하고 시작 화면으로", YELLOW, _go_to_title],
+	])
+	_ending_panel = _build_choice_panel("장난감 1,000만 개 정리 완료!", "정리 요원 민준, 수고했어요", [
+		["계속 플레이", MINT, _close_ending_panel],
+		["시작 화면으로", YELLOW, _go_to_title],
+	])
+
+	# 게임 화면에 들어오면 자동 저장을 켜고 바로 한 번 저장한다 (새 게임도 이어하기가 생긴다)
+	SaveManager.in_game = true
+	SaveManager.save_game()
 
 	EventBus.toy_sorted.connect(func(_total: int) -> void: _refresh())
 	EventBus.coins_changed.connect(_on_coins_changed)
@@ -109,12 +127,100 @@ func _process(_delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _ending_panel.visible:
+		return
+	if _pause.visible:
+		if event.is_action_pressed("ui_cancel"):
+			_set_pause_open(false)
+			get_viewport().set_input_as_handled()
+		return
+	if GameState.menu_open and not _menu.visible:
+		return  # 오프닝·엔딩 카드가 떠 있음
 	if event.is_action_pressed("menu"):
 		_set_menu_open(not GameState.menu_open)
 		get_viewport().set_input_as_handled()
 	elif GameState.menu_open and event.is_action_pressed("ui_cancel"):
 		_set_menu_open(false)
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ui_cancel"):
+		_set_pause_open(true)
+		get_viewport().set_input_as_handled()
+
+
+## ESC 메뉴: 계속하기 · 저장하기 · 저장하고 시작 화면으로
+func _set_pause_open(open: bool) -> void:
+	GameState.menu_open = open
+	_pause.visible = open
+	_pause_note.text = "ESC: 닫기"
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if open else Input.MOUSE_MODE_CAPTURED
+
+
+func _on_save_pressed() -> void:
+	_pause_note.text = "저장했어요!" if SaveManager.save_game() else "저장하지 못했어요"
+	Sfx.play("place")
+
+
+func _go_to_title() -> void:
+	SaveManager.save_game()
+	SaveManager.in_game = false
+	GameState.menu_open = false
+	get_tree().change_scene_to_file("res://scenes/title.tscn")
+
+
+func _close_ending_panel() -> void:
+	_ending_panel.visible = false
+	GameState.menu_open = false
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## 가운데 패널에 제목, 버튼들, 아래 안내 문구를 둔다. 버튼은 [글자, 색, 함수].
+func _build_choice_panel(title: String, note: String, buttons: Array) -> Control:
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.5)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.visible = false
+	_root.add_child(dim)
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var background := _style(NAVY, 24, 0.96)
+	background.set_border_width_all(4)
+	background.border_color = YELLOW
+	background.content_margin_left = 40.0
+	background.content_margin_right = 40.0
+	background.content_margin_top = 28.0
+	background.content_margin_bottom = 28.0
+	panel.add_theme_stylebox_override("panel", background)
+	dim.add_child(panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 14)
+	panel.add_child(column)
+	var heading := _make_label(34)
+	heading.text = title
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.add_theme_color_override("font_color", YELLOW)
+	column.add_child(heading)
+	for spec: Array in buttons:
+		var button := Button.new()
+		button.text = spec[0]
+		button.custom_minimum_size = Vector2(340, 58)
+		button.add_theme_font_size_override("font_size", 26)
+		var color: Color = spec[1]
+		button.add_theme_stylebox_override("normal", _style(color.darkened(0.45), 16))
+		button.add_theme_stylebox_override("hover", _style(color.darkened(0.2), 16))
+		button.add_theme_stylebox_override("pressed", _style(color.darkened(0.6), 16))
+		button.add_theme_stylebox_override("focus", _style(color.darkened(0.2), 16))
+		button.pressed.connect(spec[2])
+		column.add_child(button)
+	var hint := _make_label(18)
+	hint.text = note
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_color_override("font_color", GRAY)
+	column.add_child(hint)
+	if _pause_note == null:
+		_pause_note = hint
+	return dim
 
 
 func _refresh() -> void:
@@ -245,11 +351,33 @@ func _on_coin_arrived(coin: Control, index: int) -> void:
 	_coin_tween.tween_property(_coin_label, "scale", Vector2.ONE, 0.15)
 
 
+## 엔딩: 축하 → 곰 반장 카드 → 거대 상자 낙하(3D) → 잠에서 깨는 카드 → 완료 패널
 func _on_game_completed() -> void:
 	_message_label.text = "장난감 1,000만 개 정리 완료! 축하합니다!"
-	_message_timer.start(60.0)
-	Sfx.play("unlock")
+	_message_timer.start(4.0)
+	Sfx.play("fanfare")
 	EventBus.shake_requested.emit(1.0)
+	SaveManager.save_game()
+	EventBus.ending_box_landed.connect(_on_ending_box_landed, CONNECT_ONE_SHOT)
+	get_tree().create_timer(ENDING_DELAY).timeout.connect(func() -> void:
+		_set_menu_open(false)
+		_set_pause_open(false)
+		var story := Story.play(self, Story.ENDING_BEFORE_BOX)
+		story.finished.connect(func() -> void:
+			# 상자가 떨어지는 동안은 조작하지 못하게 막는다
+			GameState.menu_open = true
+			EventBus.ending_box_requested.emit()
+		)
+	)
+
+
+func _on_ending_box_landed() -> void:
+	var story := Story.play(self, Story.ENDING_AFTER_BOX)
+	story.finished.connect(func() -> void:
+		GameState.menu_open = true
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_ending_panel.visible = true
+	)
 
 
 ## 왼쪽 위 카드: 정리 수, 코인, 스킬 포인트, 손에 든 것

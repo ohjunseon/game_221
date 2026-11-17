@@ -12,6 +12,33 @@ func _ready() -> void:
 	SaveManager.enabled = false
 	GameState.reset()
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
+
+	# 시작 화면과 새 게임 확인 팝업
+	var title: Control = load("res://scenes/title.tscn").instantiate()
+	add_child(title)
+	await _wait(10)
+	await _shot("0_title")
+	title.confirm.visible = true
+	await _wait(5)
+	await _shot("0_title_confirm")
+	title.queue_free()
+
+	# 오프닝·엔딩 카드
+	var shots := [
+		[Story.OPENING, 1, "0_story_dad"], [Story.OPENING, 5, "0_story_bear"],
+		[Story.ENDING_BEFORE_BOX, 0, "0_story_cheer"], [Story.ENDING_AFTER_BOX, 0, "0_story_boom"],
+		[Story.ENDING_AFTER_BOX, 1, "0_story_wake"], [Story.ENDING_AFTER_BOX, 4, "0_story_clean"],
+	]
+	for spec: Array in shots:
+		var story := Story.play(self, spec[0])
+		story.index = int(spec[1]) - 1
+		story.next()
+		await _wait(120)  # 페이드와 글자 찍기가 끝날 때까지
+		await _shot(spec[2])
+		story.finish()
+		await _wait(2)
+	GameState.menu_open = false
+
 	_main = load("res://scenes/main.tscn").instantiate()
 	add_child(_main)
 	_player = _main.get_node("Player")
@@ -80,6 +107,12 @@ func _ready() -> void:
 	_look_from(Vector3(-23.0, 0.9, 0.0), PI / 2.0, 0.08)
 	await _wait(60)
 	await _shot("6_big_warehouse")
+
+	# 엔딩: 마당에서 하늘을 올려다보면 거대 상자가 떨어진다
+	_look_from(Vector3(0.0, 0.9, -12.0), 0.0, 0.0)
+	_main.drop_ending_box()
+	await get_tree().create_timer(_main.ENDING_FALL_SECONDS * 0.75).timeout
+	await _shot("7_ending_box")
 
 	print("CAPTURE DONE")
 	get_tree().quit(0)

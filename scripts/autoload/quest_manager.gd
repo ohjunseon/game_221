@@ -55,8 +55,8 @@ func progress() -> int:
 func text() -> String:
 	var quest := current()
 	if quest.is_empty():
-		return "모든 퀘스트 완료!"
-	return "퀘스트: %s (%d/%d)" % [
+		return "곰 반장: 모든 임무 완료!"
+	return "곰 반장: %s (%d/%d)" % [
 		quest["text"], mini(progress(), quest["target"]), quest["target"]
 	]
 
@@ -68,7 +68,7 @@ func check() -> void:
 		GameState.quest_index += 1
 		if int(quest["reward"]) > 0:
 			GameState.add_coins(int(quest["reward"]))
-		EventBus.message_shown.emit("퀘스트 완료! +%d 코인" % int(quest["reward"]))
+		EventBus.message_shown.emit("곰 반장: 잘했다! +%d 코인" % int(quest["reward"]))
 		Sfx.play("complete")
 		changed = true
 	if changed:

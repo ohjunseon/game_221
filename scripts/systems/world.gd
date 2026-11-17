@@ -10,6 +10,9 @@ const BELT_SPEED := 0.9
 const BELT_BOX_SIZE := 0.9
 const WAREUREU_TOYS := 240
 const WAREUREU_PER_FRAME := 3
+const ENDING_BOX_SIZE := 9.0
+const ENDING_BOX_HEIGHT := 60.0
+const ENDING_FALL_SECONDS := 2.4
 
 var warehouses: Array[Warehouse] = []
 
@@ -27,6 +30,56 @@ func _ready() -> void:
 	_build_props()
 	_build_scenery()
 	EventBus.warehouse_unlocked.connect(_on_warehouse_unlocked)
+	EventBus.ending_box_requested.connect(drop_ending_box)
+
+
+## 엔딩: 플레이어가 하늘을 올려다보고, 거대한 장난감 상자가 그림자를 키우며 떨어진다.
+func drop_ending_box() -> void:
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	var ground := player.global_position if player != null else Vector3.ZERO
+	ground.y = 0.0
+	var box := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(ENDING_BOX_SIZE, ENDING_BOX_SIZE * 0.75, ENDING_BOX_SIZE)
+	mesh.material = Look.matte(Color(0.85, 0.62, 0.38))
+	box.mesh = mesh
+	add_child(box)
+	var top := ground + Vector3.UP * ENDING_BOX_HEIGHT
+	var bottom := ground + Vector3.UP * (ENDING_BOX_SIZE * 0.375)
+	box.global_position = top
+	box.rotation.y = randf() * TAU
+
+	var shadow := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = ENDING_BOX_SIZE * 0.7
+	disc.bottom_radius = disc.top_radius
+	disc.height = 0.02
+	var dark := Look.matte(Color(0, 0, 0, 0.45))
+	dark.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	disc.material = dark
+	shadow.mesh = disc
+	add_child(shadow)
+	shadow.global_position = ground + Vector3.UP * 0.03
+	shadow.scale = Vector3.ONE * 0.1
+
+	if player != null and player.get("head") is Node3D:
+		var head: Node3D = player.get("head")
+		create_tween().tween_property(head, "rotation:x", deg_to_rad(70.0), 0.6)
+	Sfx.play("rumble", 0.6)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(box, "global_position", bottom, ENDING_FALL_SECONDS) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_property(box, "rotation:y", box.rotation.y + 1.5, ENDING_FALL_SECONDS)
+	tween.tween_property(shadow, "scale", Vector3.ONE, ENDING_FALL_SECONDS)
+	tween.chain().tween_callback(func() -> void:
+		EventBus.shake_requested.emit(4.0)
+		Sfx.play("rumble", 0.5)
+		EventBus.ending_box_landed.emit()
+	)
+	tween.chain().tween_interval(1.0)
+	tween.chain().tween_callback(box.queue_free)
+	tween.chain().tween_callback(shadow.queue_free)
 
 
 func _process(delta: float) -> void:

@@ -75,9 +75,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		if captured:
 			drop_one()
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-		if captured:
-			drop_one()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		if captured:
 			_interact(false)
@@ -90,9 +87,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		and event.physical_keycode < KEY_1 + Skills.ACTION_ORDER.size()
 	):
 		use_skill(event.physical_keycode - KEY_1)
-	elif event.is_action_pressed("ui_cancel"):
-		# Esc: 마우스 잠금 해제
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# Esc는 HUD가 받아 일시정지 메뉴를 연다
 
 
 func _physics_process(delta: float) -> void:

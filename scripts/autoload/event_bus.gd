@@ -20,3 +20,7 @@ signal popup_requested(text: String)
 signal shake_requested(strength: float)
 signal carried_changed(carried: int, capacity: int)
 signal game_completed
+## 엔딩: 곰 반장 칭찬 카드가 끝나면 하늘에서 거대 상자가 떨어진다
+signal ending_box_requested
+## 엔딩: 거대 상자가 땅에 닿음 (이어서 잠에서 깨는 카드)
+signal ending_box_landed

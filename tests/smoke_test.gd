@@ -333,6 +333,55 @@ func _ready() -> void:
 	_check(completed[0], "완료 시그널 발생")
 	_check(QuestManager.current().is_empty(), "모든 퀘스트 완료")
 
+	# 엔딩: 곰 반장 카드 → 거대 상자 낙하 → 잠에서 깨는 카드 → 완료 패널
+	var hud: Node = main.get_node("HUD")
+	await get_tree().create_timer(hud.ENDING_DELAY + 0.2).timeout
+	var story := _find_story(hud)
+	_check(story != null and story.cards == Story.ENDING_BEFORE_BOX, "엔딩 앞부분 카드가 뜸")
+	_check(GameState.menu_open, "엔딩 카드 동안 조작 멈춤")
+	var landed := [false]
+	EventBus.ending_box_landed.connect(func() -> void: landed[0] = true)
+	if story != null:
+		story.finish()
+	await get_tree().create_timer(main.ENDING_FALL_SECONDS + 0.3).timeout
+	_check(landed[0], "거대 상자가 떨어져 땅에 닿음")
+	story = _find_story(hud)
+	_check(story != null and story.cards == Story.ENDING_AFTER_BOX, "잠에서 깨는 카드가 뜸")
+	if story != null:
+		story.finish()
+	_check(hud._ending_panel.visible, "엔딩 뒤 완료 패널 (계속 플레이 / 시작 화면)")
+	hud._close_ending_panel()
+	_check(not GameState.menu_open, "계속 플레이로 다시 조작 가능")
+
+	# ESC 메뉴
+	hud._set_pause_open(true)
+	_check(hud._pause.visible and GameState.menu_open, "ESC 메뉴가 열리고 조작 멈춤")
+	hud._set_pause_open(false)
+
+	# 저장 한 칸: 저장 → 불러오기 → 새 게임은 저장을 지운다 (테스트 전용 파일)
+	SaveManager.save_path = "user://smoke_save.json"
+	SaveManager.enabled = true
+	var sorted_saved := GameState.total_sorted
+	_check(SaveManager.save_game() and SaveManager.has_save(), "저장하면 이어하기 가능")
+	GameState.total_sorted = 0
+	_check(SaveManager.load_game() and GameState.total_sorted == sorted_saved, "불러오면 정리 수 복원")
+	var title: Control = load("res://scenes/title.tscn").instantiate()
+	add_child(title)
+	_check(not title.continue_button.disabled, "시작 화면: 저장이 있으면 이어하기 켜짐")
+	title._on_new_game()
+	_check(title.confirm.visible, "저장이 있으면 새 게임 확인 팝업")
+	title.start_new_game()
+	_check(not SaveManager.has_save() and GameState.total_sorted == 0, "새 게임은 저장을 지우고 처음부터")
+	var opening := _find_story(title)
+	_check(opening != null and opening.cards == Story.OPENING, "새 게임은 오프닝 카드부터")
+	if opening != null:
+		opening.finished.disconnect(title._enter_game)
+		opening.finish()
+	title.queue_free()
+	SaveManager.enabled = false
+	SaveManager.in_game = false
+	SaveManager.save_path = SaveManager.SAVE_PATH
+
 	await get_tree().physics_frame
 	print("SMOKE %s (%d checks, %d failures)" % [
 		"PASS" if _failures == 0 else "FAIL", _checks, _failures
@@ -344,6 +393,13 @@ func _ready() -> void:
 func _sort_until(target: int) -> void:
 	var per_box := GameState.toys_per_box()
 	GameState.auto_store(maxi(0, ceili(float(target - GameState.total_sorted) / per_box)))
+
+
+func _find_story(parent: Node) -> Story:
+	for child in parent.get_children():
+		if child is Story and not child.is_queued_for_deletion():
+			return child
+	return null
 
 
 func _check(condition: bool, description: String) -> void:
