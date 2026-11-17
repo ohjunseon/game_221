@@ -59,7 +59,9 @@ func _ready() -> void:
 	GameState.add_coins(100)
 	GameState.upgrade("big_hands")
 	var by_type := {}
-	for toy: Node3D in get_tree().get_nodes_in_group("toy"):
+	var field: ToyField = _main.warehouses[0].fields[0]
+	for slot in 60:
+		var toy := field.materialize(slot)
 		var type: int = toy.get_meta("toy_type")
 		if not by_type.has(type):
 			by_type[type] = []
@@ -75,6 +77,12 @@ func _ready() -> void:
 	_look_from(Vector3(0.0, 0.9, -21.0), 0.0, -0.55)
 	await _wait(10)
 	await _shot("2b_toys")
+
+	# 창고 1 문 안쪽에서: 바닥 전체에 깔린 장난감 4,000개
+	_look_from(Vector3(0.0, 1.6, -21.5), 0.0, -0.35)
+	await _wait(30)
+	await _shot("2c_field")
+	print("FPS 창고 1 바닥: %d" % Engine.get_frames_per_second())
 
 	# 스킬 메뉴
 	GameState.learn("magnet")
@@ -107,6 +115,13 @@ func _ready() -> void:
 	_look_from(Vector3(-23.0, 0.9, 0.0), PI / 2.0, 0.08)
 	await _wait(60)
 	await _shot("6_big_warehouse")
+	print("FPS 창고 4 안: %d" % Engine.get_frames_per_second())
+
+	# 창고 4 문 앞 마당의 장난감 산 (창고 안에 다 못 들어간 만큼)
+	_look_from(Vector3(6.0, 1.6, 0.0), PI / 2.0, 0.05)
+	await _wait(60)
+	await _shot("6b_yard_mountain")
+	print("FPS 마당 산: %d" % Engine.get_frames_per_second())
 
 	# 엔딩: 마당에서 하늘을 올려다보면 거대 상자가 떨어진다
 	_look_from(Vector3(0.0, 0.9, -12.0), 0.0, 0.0)

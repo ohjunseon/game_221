@@ -193,6 +193,20 @@ func _update_magnet() -> void:
 			continue
 		_take(toy, true)
 		took = true
+	# 바닥에 깔린 장난감: 모으는 형태가 정해지면 그 형태만, 박스 하나 분량씩
+	for round_index in 4:
+		if boxes.size() >= capacity:
+			break
+		var type := held_type if loose > 0 else -1
+		var want := Toys.BOX_SIZE - loose if loose > 0 else 1
+		var pulled := 0
+		for field in ToyField.all:
+			for toy in field.take_near(global_position, radius, type, want - pulled):
+				_take(toy, true)
+				pulled += 1
+				took = true
+		if pulled == 0:
+			break
 	if took:
 		Sfx.play("pick", 1.0 + 0.08 * loose)
 		_refresh_hands()
@@ -289,10 +303,26 @@ func _raycast() -> Object:
 	var reach := Skills.BASE_REACH
 	if GameState.is_active("long_arm"):
 		reach = Skills.reach(GameState.level("long_arm"))
-	var to := from - camera.global_basis.z * reach
-	var query := PhysicsRayQueryParameters3D.create(from, to, RAY_MASK, [get_rid()])
+	var direction := -camera.global_basis.z
+	var query := PhysicsRayQueryParameters3D.create(from, from + direction * reach, RAY_MASK, [get_rid()])
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	return hit.get("collider")
+	var collider: Object = hit.get("collider")
+	# 바닥에 깔린 장난감(그림)이 더 가까우면 그 자리를 진짜 장난감으로 바꿔 돌려준다
+	var nearest := reach
+	if collider != null:
+		nearest = from.distance_to(hit["position"])
+	var best_field: ToyField = null
+	var best_slot := -1
+	var distance := []
+	for field in ToyField.all:
+		var slot := field.raycast(from, direction, nearest, distance)
+		if slot >= 0:
+			nearest = distance[0]
+			best_field = field
+			best_slot = slot
+	if best_field != null:
+		return best_field.materialize(best_slot)
+	return collider
 
 
 func _update_aim_text() -> void:

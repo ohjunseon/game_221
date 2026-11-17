@@ -50,8 +50,31 @@ func _ready() -> void:
 		"스킬 포인트: 박스 10·30·60·100개마다 (전체 88개)"
 	)
 
-	var toys := get_tree().get_nodes_in_group("toy")
-	_check(toys.size() == Warehouse.TOY_TARGET, "창고 1의 1층에만 장난감 (실제 %d)" % toys.size())
+	# 바닥 장난감: 창고 1의 1층 재고 4,000개가 전부 창고 안 바닥에 깔린다 (다른 층·잠긴 창고는 없음)
+	var field: ToyField = warehouses[0].fields[0]
+	_check(field != null and field.alive == 4000 and field.floor_count() == 4000,
+		"창고 1 1층 장난감 4,000개가 전부 바닥에 (실제 %d)" % (field.alive if field else -1))
+	_check(field != null and field.inside_count == 4000, "창고 1은 전부 창고 안에 들어감")
+	_check(warehouses[0].fields[1] == null and warehouses[1].fields[0] == null, "2층·잠긴 창고에는 아직 없음")
+	var per_type := {}
+	for t: int in field.types:
+		per_type[t] = int(per_type.get(t, 0)) + 1
+	var multiples := true
+	for t: int in per_type:
+		multiples = multiples and per_type[t] % Toys.BOX_SIZE == 0
+	_check(multiples, "형태별 개수가 4의 배수 (마지막 박스까지 맞음)")
+	# 조준: 바닥 장난감을 내려다보면 진짜 장난감으로 바뀌어 잡힌다
+	var probe: Vector3 = field.to_global(field.positions[0])
+	player.global_position = probe + Vector3(0.0, 0.9, 1.2)
+	player.rotation.y = 0.0
+	player.head.rotation.x = -atan2(player.head.global_position.y - probe.y - 0.1, 1.2)
+	await get_tree().physics_frame
+	var aimed: Object = player._raycast()
+	_check(aimed is Node3D and (aimed as Node3D).is_in_group("toy") and field.floor_count() == 3999,
+		"조준하면 바닥 장난감이 주울 수 있는 장난감이 됨")
+	var toys: Array[Node3D] = []
+	for slot in 40:
+		toys.append(field.materialize(slot))
 
 	_check(Shelf.required_posture(1) == Shelf.Posture.CROUCH, "1단 웅크리기")
 	_check(Shelf.required_posture(3) == Shelf.Posture.CROUCH, "3단 웅크리기")
@@ -268,6 +291,42 @@ func _ready() -> void:
 		if toy is RigidBody3D:
 			rigid_count += 1
 	_check(rigid_count == 240, "와르르 장난감 240개 (실제 %d)" % rigid_count)
+
+	# 열린 창고마다 1층 재고 전부가 깔리고, 창고 안에 다 안 들어가면 문 밖 마당 산으로 넘친다
+	await get_tree().create_timer(1.2).timeout
+	for i in 4:
+		var each: ToyField = warehouses[i].fields[0]
+		var expected_toys := maxi(0, GameState.ground_toys(i + 1, 0) - int(GameState.dropped_toys.get(GameState.floor_key(i + 1, 0), 0)))
+		_check(each != null and each.alive == expected_toys,
+			"창고 %d 1층 바닥 장난감 = 재고 %d (실제 %d)" % [i + 1, expected_toys, each.alive if each else -1])
+	var big: ToyField = warehouses[3].fields[0]
+	_check(big.inside_count < big.alive and big.inside_count > 15000,
+		"창고 4: 안에 %d개, 넘친 %d개는 마당 산" % [big.inside_count, big.alive - big.inside_count])
+	# 자석: 바닥 장난감을 같은 형태로 박스 분량씩 끌어온다
+	var magnet_field: ToyField = warehouses[0].fields[0]
+	player.global_position = magnet_field.to_global(magnet_field.positions[int(magnet_field.inside_count * 0.5)]) + Vector3.UP * 0.9
+	player.boxes.clear()
+	player.loose = 0
+	player.held_type = -1
+	GameState.skill_points += 1
+	GameState.learn("magnet")
+	GameState.now += 1000.0
+	var before_magnet := magnet_field.floor_count()
+	_check(player.use_skill(0), "자석 발동")
+	for i in 3:
+		await get_tree().physics_frame
+	_check(player.boxes.size() >= 1 and before_magnet - magnet_field.floor_count() >= player.boxes.size() * Toys.BOX_SIZE + player.loose,
+		"자석: 바닥 장난감을 같은 형태 4개씩 박스로 끌어옴 (박스 %d, 줄어든 수 %d)" % [
+			player.boxes.size(), before_magnet - magnet_field.floor_count()])
+	GameState.now += 1000.0
+	player.boxes.clear()
+	GameState.carried_toys.clear()
+	await get_tree().create_timer(1.1).timeout
+	# 자동으로 박스가 정리되면 바닥 장난감도 그만큼 줄어든다
+	var before_auto := magnet_field.alive
+	GameState.auto_store(50)
+	await get_tree().create_timer(1.1).timeout
+	_check(magnet_field.alive == GameState.ground_toys(1, 0), "자동 정리만큼 바닥 장난감이 줄어듦 (%d → %d)" % [before_auto, magnet_field.alive])
 
 	# 층 진행: 1층을 다 채워야 2층이 열린다
 	_check(not GameState.is_floor_active(1, 1), "1층 완료 전 2층 비활성")

@@ -23,6 +23,9 @@ const GOLD := Color(1.0, 0.8, 0.2)
 static var _materials: Dictionary = {}
 static var _meshes: Dictionary = {}
 static var _box_meshes: Dictionary = {}
+static var _field_meshes: Dictionary = {}
+static var _far_mesh: BoxMesh
+static var _gold_mesh: BoxMesh
 
 
 static func count() -> int:
@@ -127,6 +130,81 @@ static func box_mesh(type: int) -> ArrayMesh:
 		mesh.surface_set_material(0, Look.vertex_color(0.5))
 		_box_meshes[type] = mesh
 	return _box_meshes[type]
+
+
+## 바닥에 깔린 장난감(ToyField)용: 형태의 부품을 낮은 면 수로 한 메시에 합친 것 (꼭짓점 색).
+static func field_mesh(type: int) -> ArrayMesh:
+	if _field_meshes.has(type):
+		return _field_meshes[type]
+	var low := {
+		"box": BoxMesh.new(),
+		"ball": SphereMesh.new(),
+		"cyl": CylinderMesh.new(),
+	}
+	(low["ball"] as SphereMesh).radial_segments = 8
+	(low["ball"] as SphereMesh).rings = 4
+	(low["cyl"] as CylinderMesh).radial_segments = 8
+	(low["cyl"] as CylinderMesh).height = 1.0
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	var visual := make_visual(type)
+	for part in visual.get_children():
+		var instance := part as MeshInstance3D
+		if instance == null:
+			continue
+		var key := "box"
+		for mesh_name: String in _meshes:
+			if _meshes[mesh_name] == instance.mesh:
+				key = mesh_name
+		var arrays: Array = (low[key] as Mesh).surface_get_arrays(0)
+		var base := vertices.size()
+		var xform := instance.transform
+		var color := COLORS[type]
+		var material := instance.material_override as StandardMaterial3D
+		if material != null:
+			color = material.albedo_color
+		for v: Vector3 in arrays[Mesh.ARRAY_VERTEX]:
+			vertices.append(xform * v)
+			colors.append(color)
+		for n: Vector3 in arrays[Mesh.ARRAY_NORMAL]:
+			normals.append((xform.basis.inverse().transposed() * n).normalized())
+		for i: int in arrays[Mesh.ARRAY_INDEX]:
+			indices.append(base + i)
+	visual.free()
+	var out := []
+	out.resize(Mesh.ARRAY_MAX)
+	out[Mesh.ARRAY_VERTEX] = vertices
+	out[Mesh.ARRAY_NORMAL] = normals
+	out[Mesh.ARRAY_COLOR] = colors
+	out[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out)
+	mesh.surface_set_material(0, Look.vertex_color(0.5))
+	_field_meshes[type] = mesh
+	return mesh
+
+
+## 멀리 있는 바닥 장난감용 작은 육면체. 색은 MultiMesh 인스턴스 색으로 준다.
+static func far_mesh() -> BoxMesh:
+	if _far_mesh == null:
+		_far_mesh = BoxMesh.new()
+		_far_mesh.size = Vector3(0.24, 0.22, 0.24)
+		var material := StandardMaterial3D.new()
+		material.vertex_color_use_as_albedo = true
+		material.roughness = 0.6
+		_far_mesh.material = material
+	return _far_mesh
+
+
+## 바닥의 황금 장난감: 빛나는 육면체 (집으면 진짜 황금 장난감이 된다)
+static func gold_mesh() -> BoxMesh:
+	if _gold_mesh == null:
+		_gold_mesh = BoxMesh.new()
+		_gold_mesh.size = Vector3(0.24, 0.24, 0.24)
+		_gold_mesh.material = Look.glow(GOLD, 1.2)
+	return _gold_mesh
 
 
 ## 이미 만든 박스의 라벨을 다른 형태 색으로 바꾼다.
