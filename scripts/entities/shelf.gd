@@ -64,6 +64,7 @@ static func posture_text(posture: Posture) -> String:
 
 func _ready() -> void:
 	_key = GameState.shelf_key(warehouse_id, floor_index, shelf_index)
+	add_to_group("shelf")
 	_build()
 	_celebrated = is_full()
 	_sync()

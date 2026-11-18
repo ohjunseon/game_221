@@ -168,8 +168,8 @@ func _ready() -> void:
 	player.boxes.clear()
 
 	# 액션 스킬: 배우기, 발동, 지속 시간, 쿨타임
-	_check(Skills.ACTION_ORDER == ["magnet", "auto_sort", "jackpot"] and Skills.UPGRADE_ORDER.size() == 4,
-		"액션 3종(긴 팔 없음), 업그레이드 4종")
+	_check(Skills.ACTION_ORDER == ["magnet", "auto_sort", "jackpot", "bulk_sort"] and Skills.UPGRADE_ORDER.size() == 4,
+		"액션 4종(긴 팔 없음), 업그레이드 4종")
 	_check(not Skills.DEFS.has("long_arm"), "긴 팔 삭제")
 	_check(not GameState.learn("bundle"), "업그레이드는 포인트로 배우지 않음")
 	_check(not player.use_skill(2), "배우지 않은 스킬은 발동 불가")
@@ -235,6 +235,33 @@ func _ready() -> void:
 	player.held_type = -1
 	GameState.carried_toys.clear()
 	GameState.now += 100.0
+
+	# 일괄 정리: 근처 선반에 자세 상관없이 박스를 넣고, 내려놓은 박스도 주워서 넣는다
+	GameState.skill_points = 1
+	_check(GameState.learn("bulk_sort"), "일괄 정리 배우기")
+	var bulk_shelf := warehouses[0].shelves[8]
+	player.global_position = bulk_shelf.global_position + Vector3(0.0, 0.9, 1.5)
+	player.boxes.clear()
+	player.box_keys.clear()
+	_check(not player.use_skill(3) and GameState.cooldown_left("bulk_sort") == 0.0, "넣을 박스가 없으면 발동 안 함")
+	player.boxes.append(type_a)
+	player.boxes.append(type_a)
+	var bulk_before := GameState.total_sorted
+	_check(player.use_skill(3), "4번 키로 일괄 정리 발동")
+	_check(player.boxes.is_empty() and GameState.total_sorted > bulk_before,
+		"일괄 정리: 자세 없이 박스 넣음 (+%d)" % (GameState.total_sorted - bulk_before))
+	_check(GameState.cooldown_left("bulk_sort") > 0.0 and not GameState.is_active("bulk_sort"), "일괄 정리는 지속 없이 쿨타임만")
+	GameState.now += 100.0
+	player.boxes.append(type_a)
+	player.drop_one()
+	bulk_before = GameState.total_sorted
+	_check(player.boxes.is_empty() and get_tree().get_nodes_in_group("box_item").size() >= 1, "박스를 바닥에 내려놓음")
+	_check(player.use_skill(3) and GameState.total_sorted > bulk_before, "일괄 정리: 바닥 박스도 주워서 넣음")
+	_check(Skills.bulk_radius(10) > Skills.bulk_radius(1) and Skills.cooldown("bulk_sort", 10) < Skills.cooldown("bulk_sort", 1),
+		"일괄 정리 레벨업: 범위 증가, 쿨타임 감소")
+	GameState.now += 100.0
+	player.boxes.clear()
+	GameState.carried_toys.clear()
 
 	# 황금 장난감: 한 개라도 섞인 박스는 코인 10배
 	for i in Toys.BOX_SIZE:

@@ -7,16 +7,17 @@ extends RefCounted
 const CAP_PER_POINT := 10
 const BASE_REACH := 3.0
 ## 지속 시간 없이 누를 때 한 번만 효과가 나는 스킬
-const INSTANT: Array[String] = ["magnet"]
+const INSTANT: Array[String] = ["magnet", "bulk_sort"]
 
-## 슬롯 순서 = 숫자키 1~3
-const ACTION_ORDER: Array[String] = ["magnet", "auto_sort", "jackpot"]
+## 슬롯 순서 = 숫자키 1~4
+const ACTION_ORDER: Array[String] = ["magnet", "auto_sort", "jackpot", "bulk_sort"]
 const UPGRADE_ORDER: Array[String] = ["bundle", "big_hands", "quick_hands", "sprint"]
 
 const DEFS := {
 	"magnet": {"name": "자석", "desc": "누르면 들고 있는 장난감과 같은 형태를 손 가득 끌어온다", "base": 100, "growth": 1.7},
 	"auto_sort": {"name": "자동 정리", "desc": "선반이 알아서 채워진다", "base": 200, "growth": 2.0},
 	"jackpot": {"name": "대박 타임", "desc": "받는 코인이 몇 배가 된다", "base": 150, "growth": 1.8},
+	"bulk_sort": {"name": "일괄 정리", "desc": "누르면 근처 선반에 박스를 자동으로 넣는다 (자세 필요 없음)", "base": 150, "growth": 1.8},
 	"bundle": {"name": "묶음 정리", "desc": "박스에 장난감이 더 많이 담긴 것으로 계산된다", "base": 40, "growth": 2.4},
 	"big_hands": {"name": "큰 손", "desc": "박스를 한 번에 더 많이 든다", "base": 20, "growth": 2.4},
 	"quick_hands": {"name": "빠른 손", "desc": "마우스를 누르고 있으면 연속으로 줍고 넣는다", "base": 80, "growth": 2.0},
@@ -49,6 +50,8 @@ static func cooldown(id: String, level: int) -> float:
 	match id:
 		"magnet":
 			return maxf(3.0, 15.0 - 0.6 * level)
+		"bulk_sort":
+			return maxf(5.0, 20.0 - 0.7 * level)
 		"auto_sort":
 			return maxf(10.0, 30.0 - 0.6 * level)
 		"jackpot":
@@ -65,6 +68,11 @@ static func uptime(id: String, level: int) -> float:
 
 static func magnet_radius(level: int) -> float:
 	return 3.0 + 0.5 * level
+
+
+## 일괄 정리가 선반과 바닥 박스를 찾는 반경
+static func bulk_radius(level: int) -> float:
+	return 6.0 + 0.5 * level
 
 
 static func jackpot_mult(level: int) -> float:
@@ -116,6 +124,8 @@ static func fmt(value: int) -> String:
 
 static func effect_text(id: String, level: int) -> String:
 	if is_action(id):
+		if id == "bulk_sort":
+			return "반경 %.1fm, %.0f초마다 1번" % [bulk_radius(level), cooldown(id, level)]
 		if id in INSTANT:
 			return "반경 %.1fm, %.0f초마다 1번" % [magnet_radius(level), cooldown(id, level)]
 		var timing := "%.0f초 지속 / %.0f초마다" % [duration(id, level), cooldown(id, level)]

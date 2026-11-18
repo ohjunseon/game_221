@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## 정리 수·코인·퀘스트 카드, 진행 바, 조준 안내, 알림, 떠오르는 숫자,
-## 화면 아래 스킬 슬롯 3칸(1~3 키), 스킬·업그레이드 메뉴(Tab).
+## 화면 아래 스킬 슬롯 4칸(1~4 키), 스킬·업그레이드 메뉴(Tab).
 
 const MESSAGE_SECONDS := 2.4
 const MAX_FLYING_COINS := 12
@@ -16,8 +16,8 @@ const PINK := Color(1.0, 0.58, 0.68)
 const GRAY := Color(0.64, 0.68, 0.78)
 const ICON_DIR := "res://assets/icons/"
 ## 액션 스킬별 아이콘(Kenney Game Icons)과 강조 색
-const SLOT_ICONS := {"magnet": "target", "auto_sort": "gear", "jackpot": "star"}
-const SLOT_COLORS := {"magnet": PINK, "auto_sort": MINT, "jackpot": YELLOW}
+const SLOT_ICONS := {"magnet": "target", "bulk_sort": "larger", "auto_sort": "gear", "jackpot": "star"}
+const SLOT_COLORS := {"magnet": PINK, "bulk_sort": SKY, "auto_sort": MINT, "jackpot": YELLOW}
 
 var _root: Control
 var _sorted_label: Label
@@ -523,7 +523,7 @@ func _build_menu() -> void:
 	_menu_title.add_theme_font_size_override("font_size", 26)
 	column.add_child(_menu_title)
 
-	_add_section(column, "액션 스킬", "숫자키 1~3으로 발동 · 스킬 포인트로 배운다", PINK)
+	_add_section(column, "액션 스킬", "숫자키 1~4로 발동 · 스킬 포인트로 배운다", PINK)
 	for id in Skills.ACTION_ORDER:
 		_add_row(column, id)
 	_add_section(column, "업그레이드", "항상 적용 · 코인으로 올린다", SKY)

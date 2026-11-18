@@ -152,7 +152,7 @@ func try_pick(toy: Node3D, quiet: bool = false) -> bool:
 	return true
 
 
-## 액션 스킬 발동 (slot 0~2 = 숫자키 1~3)
+## 액션 스킬 발동 (slot 0~3 = 숫자키 1~4)
 func use_skill(slot: int) -> bool:
 	var id := Skills.ACTION_ORDER[slot]
 	var skill_name: String = Skills.DEFS[id]["name"]
@@ -168,6 +168,8 @@ func use_skill(slot: int) -> bool:
 		return false
 	if id == "magnet":
 		return _use_magnet()
+	if id == "bulk_sort":
+		return _use_bulk_sort()
 	GameState.activate(id)
 	EventBus.message_shown.emit("%s 발동!" % skill_name)
 	Sfx.play("unlock", 1.6)
@@ -224,8 +226,48 @@ func magnet_pull(type: int, limit: int) -> int:
 	return pulled
 
 
+## 일괄 정리: 근처 바닥에 내려놓은 박스를 주워 들고 있는 박스와 함께, 반경 안의 선반(가까운 순)에 자세 상관없이 넣는다.
+## 넣을 박스가 없거나 받아 줄 선반이 없으면 쿨타임을 쓰지 않는다.
+func _use_bulk_sort() -> bool:
+	var radius := Skills.bulk_radius(GameState.level("bulk_sort"))
+	var shelves: Array[Shelf] = []
+	for node in get_tree().get_nodes_in_group("shelf"):
+		var shelf := node as Shelf
+		if shelf == null or shelf.is_full():
+			continue
+		var offset := shelf.global_position - global_position
+		if absf(offset.y) <= 4.0 and Vector2(offset.x, offset.z).length() <= radius:
+			shelves.append(shelf)
+	shelves.sort_custom(func(a: Shelf, b: Shelf) -> bool:
+		return a.global_position.distance_to(global_position) < b.global_position.distance_to(global_position))
+	var sent := 0
+	for round_index in 8:
+		for item: Node3D in get_tree().get_nodes_in_group("box_item"):
+			if boxes.size() >= carry_capacity():
+				break
+			if not item.is_queued_for_deletion() and item.global_position.distance_to(global_position) <= radius:
+				try_pick_box(item, true)
+		var before := sent
+		for shelf in shelves:
+			while not boxes.is_empty() and not shelf.is_full():
+				var count := boxes.size()
+				if not try_place(shelf, Shelf.Posture.STAND, true, true):
+					break
+				sent += count - boxes.size()
+		if sent == before:
+			break
+	if sent <= 0:
+		EventBus.message_shown.emit("일괄 정리: 근처에 넣을 박스나 선반이 없어요")
+		Sfx.play("error")
+		return false
+	GameState.activate("bulk_sort")
+	EventBus.message_shown.emit("일괄 정리! 박스 %d개" % sent)
+	Sfx.play("unlock", 1.6)
+	return true
+
+
 ## 들고 있는 박스를 선반의 현재 단에 넣는다. 자세가 맞아야 한다.
-func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> bool:
+func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false, any_posture: bool = false) -> bool:
 	if boxes.is_empty():
 		if not quiet:
 			EventBus.message_shown.emit(
@@ -237,7 +279,7 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 			EventBus.message_shown.emit("가득 찬 선반입니다")
 		return false
 	var required := Shelf.required_posture(shelf.current_tier())
-	if posture != required:
+	if not any_posture and posture != required:
 		if not quiet:
 			EventBus.message_shown.emit(
 				"%d단: %s" % [shelf.current_tier(), Shelf.posture_text(required)]

@@ -12,8 +12,8 @@ const SEARCH_SECONDS := 0.6
 const POSTURE_SECONDS := 0.6
 const MILESTONES: Array[int] = [100, 1000, 5000, 10000, 100000, 1000000, 5000000, 10000000]
 ## 액션 스킬을 배우는 순서, 한계 돌파 우선순위
-const LEARN_ORDER: Array[String] = ["magnet", "auto_sort", "jackpot"]
-const BREAK_ORDER: Array[String] = ["auto_sort", "jackpot", "magnet"]
+const LEARN_ORDER: Array[String] = ["magnet", "auto_sort", "jackpot", "bulk_sort"]
+const BREAK_ORDER: Array[String] = ["auto_sort", "jackpot", "magnet", "bulk_sort"]
 ## 자석으로 손을 채운 왕복에서 줍는 시간이 줄어드는 비율
 const MAGNET_SAVING := 0.8
 
@@ -89,6 +89,11 @@ func _manual_boxes() -> float:
 		# 자석을 쓴 왕복의 비율 = 왕복 시간 / 쿨타임 (최대 1)
 		var assisted := minf(1.0, (other + pick_time * (1.0 - MAGNET_SAVING)) / Skills.cooldown("magnet", magnet))
 		pick_time *= 1.0 - MAGNET_SAVING * assisted
+	# 일괄 정리는 쿨타임마다 한 왕복의 자세 맞추기를 건너뛴다
+	var bulk := _level("bulk_sort")
+	if bulk > 0:
+		var saved := minf(1.0, (other + pick_time) / Skills.cooldown("bulk_sort", bulk))
+		other -= POSTURE_SECONDS * saved
 	return carry / (other + pick_time)
 
 
