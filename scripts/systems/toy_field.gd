@@ -7,7 +7,15 @@ extends Node3D
 ## 창고(Warehouse)의 자식이라 좌표는 창고 로컬이다.
 
 const SPACING := 0.32
-const JITTER := 0.06
+## 위에서 부은 것처럼: 칸 안에서 옆으로·위아래로 흩어지는 폭
+const JITTER := 0.13
+const HEIGHT_JITTER := 0.07
+## 눕거나 기운 장난감 비율과 기울기 (라디안)
+const LYING_CHANCE := 0.35
+const SMALL_TILT := 0.4
+## 산 가장자리를 울퉁불퉁하게: 큰 굴곡의 세기, 칸마다 흔들림 (m)
+const LUMP := 0.14
+const ROUGH := 0.35
 const LAYER_HEIGHT := 0.2
 const TOY_HEIGHT := 0.3
 const WALL_MARGIN := 0.4
@@ -41,6 +49,8 @@ var key: String = ""
 var alive: int = 0
 var positions := PackedVector3Array()
 var yaws := PackedFloat32Array()
+## 장난감마다 앞뒤(x)·옆(y) 기울기
+var tilts := PackedVector2Array()
 var types := PackedByteArray()
 var golden := PackedByteArray()
 var state := PackedByteArray()
@@ -114,7 +124,11 @@ func _inside_columns(size: Vector2, needed: int) -> Array[Vector3i]:
 			if blocked:
 				continue
 			cells.append(Vector2i(ix, iz))
-			dists.append(p.length())
+			# 둥근 산이 아니라 쏟아 부은 더미처럼: 방향에 따라 크게 굴곡지고 칸마다 조금씩 흔들린다
+			var angle := atan2(p.y, p.x)
+			var lump := 1.0 + LUMP * sin(angle * 3.0 + 1.3) + LUMP * 0.6 * sin(angle * 5.0 + 4.1)
+			var rough := float(hash(Vector2i(ix, iz) + Vector2i(warehouse_id * 7, floor_index * 13)) % 1000) / 1000.0 * ROUGH
+			dists.append(p.length() * lump + rough)
 	# 반경 이분 탐색: 겹 수 합이 needed 이상인 가장 작은 반경
 	var low := 0.0
 	var high := MOUNTAIN_MAX_RADIUS
@@ -131,6 +145,11 @@ func _inside_columns(size: Vector2, needed: int) -> Array[Vector3i]:
 		if layers > 0:
 			result.append(Vector3i(cells[i].x, cells[i].y, layers))
 	return result
+
+
+func _rotation_of(slot: int) -> Vector3:
+	var tilt := tilts[slot]
+	return Vector3(tilt.x, yaws[slot], tilt.y)
 
 
 func _mountain_layers(distance: float, radius: float) -> int:
@@ -216,12 +235,20 @@ func _add_layers(columns: Array[Vector3i], base_y: float, count: int, rng: Rando
 			var p := _cell_center(column.x, column.y)
 			var at := Vector3(
 				p.x + rng.randf_range(-JITTER, JITTER),
-				base_y + layer * LAYER_HEIGHT,
+				base_y + layer * LAYER_HEIGHT + (rng.randf_range(0.0, HEIGHT_JITTER) if layer == 0 else rng.randf_range(-HEIGHT_JITTER, HEIGHT_JITTER)),
 				p.y + rng.randf_range(-JITTER, JITTER)
 			)
 			var slot := positions.size()
 			positions.append(at)
 			yaws.append(rng.randf() * TAU)
+			if rng.randf() < LYING_CHANCE:
+				# 옆으로 누운 장난감
+				var side := PI / 2.0 * (1.0 if rng.randf() < 0.5 else -1.0)
+				tilts.append(Vector2(side, 0.0) if rng.randf() < 0.5 else Vector2(0.0, side))
+				# 누우면 몸통이 바닥 아래로 들어가지 않게 조금 띄운다
+				positions[slot] = at + Vector3(0.0, 0.08, 0.0)
+			else:
+				tilts.append(Vector2(rng.randf_range(-SMALL_TILT, SMALL_TILT), rng.randf_range(-SMALL_TILT, SMALL_TILT)))
 			var cell := Vector2i(column.x, column.y)
 			var list: PackedInt32Array = _columns.get(cell, PackedInt32Array())
 			list.append(slot)
@@ -321,7 +348,7 @@ func _make_multimesh(mesh: Mesh, count: int, center: Vector3, begin: float, end:
 func _show(slot: int, visible_now: bool) -> void:
 	var entry: Dictionary = _chunks[_chunk_of[slot]]
 	var local := positions[slot] - (entry["center"] as Vector3)
-	var basis := Basis(Vector3.UP, yaws[slot])
+	var basis := Basis.from_euler(_rotation_of(slot))
 	if not visible_now:
 		basis = basis.scaled(Vector3.ZERO)
 	if golden[slot] == 1:
@@ -392,7 +419,7 @@ func materialize(slot: int) -> Node3D:
 	toy.set_meta("floor_key", key)
 	toy.set_meta("field_slot", slot)
 	toy.position = positions[slot]
-	toy.rotation.y = yaws[slot]
+	toy.rotation = _rotation_of(slot)
 	add_child(toy)
 	state[slot] = AS_NODE
 	_show(slot, false)
