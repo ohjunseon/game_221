@@ -168,31 +168,32 @@ func _ready() -> void:
 	player.boxes.clear()
 
 	# 액션 스킬: 배우기, 발동, 지속 시간, 쿨타임
-	_check(Skills.ACTION_ORDER.size() == 4 and Skills.UPGRADE_ORDER.size() == 4, "액션 4종, 업그레이드 4종")
+	_check(Skills.ACTION_ORDER == ["magnet", "auto_sort", "jackpot"] and Skills.UPGRADE_ORDER.size() == 4,
+		"액션 3종(긴 팔 없음), 업그레이드 4종")
+	_check(not Skills.DEFS.has("long_arm"), "긴 팔 삭제")
 	_check(not GameState.learn("bundle"), "업그레이드는 포인트로 배우지 않음")
-	_check(not player.use_skill(1), "배우지 않은 스킬은 발동 불가")
-	_check(GameState.learn("long_arm"), "긴 팔 배우기")
+	_check(not player.use_skill(2), "배우지 않은 스킬은 발동 불가")
+	_check(GameState.learn("jackpot"), "대박 타임 배우기")
 	_check(not GameState.learn("magnet"), "포인트 없이는 못 배움")
 	var second := warehouses[0].shelves[1]
 	player.boxes.append(type_a)
-	_check(not player.try_place(second, Shelf.Posture.STAND), "긴 팔을 켜지 않으면 자세 필요")
-	_check(player.use_skill(1) and GameState.is_active("long_arm"), "2번 키로 긴 팔 발동")
-	_check(player.try_place(second, Shelf.Posture.STAND), "긴 팔 사용 중: 1단도 서서 넣기")
-	_check(not player.use_skill(1), "쿨타임 중에는 다시 발동 불가")
-	GameState.now += Skills.duration("long_arm", 1) + 0.1
+	_check(not player.try_place(second, Shelf.Posture.STAND), "자세가 맞지 않으면 넣기 불가")
+	player.boxes.clear()
+	_check(player.use_skill(2) and GameState.is_active("jackpot"), "3번 키로 대박 타임 발동")
+	_check(not player.use_skill(2), "쿨타임 중에는 다시 발동 불가")
+	GameState.now += Skills.duration("jackpot", 1) + 0.1
 	_check(
-		not GameState.is_active("long_arm") and GameState.cooldown_left("long_arm") > 0.0,
+		not GameState.is_active("jackpot") and GameState.cooldown_left("jackpot") > 0.0,
 		"지속 시간이 끝나도 쿨타임은 남음"
 	)
-	GameState.now += Skills.cooldown("long_arm", 1)
-	_check(GameState.cooldown_left("long_arm") == 0.0 and player.use_skill(1), "쿨타임 뒤 다시 발동")
-	GameState.now += 100.0
+	GameState.now += Skills.cooldown("jackpot", 1)
+	_check(GameState.cooldown_left("jackpot") == 0.0, "쿨타임 끝")
 
 	# 대박 타임: 코인 배수
-	GameState.skill_points = 2
-	_check(GameState.learn("jackpot") and GameState.learn("magnet"), "대박 타임·자석 배우기")
-	_check(GameState.learned_count() == 3, "배운 액션 스킬 3개")
-	_check(player.use_skill(3), "4번 키로 대박 타임 발동")
+	GameState.skill_points = 1
+	_check(GameState.learn("magnet"), "자석 배우기")
+	_check(GameState.learned_count() == 2, "배운 액션 스킬 2개")
+	_check(player.use_skill(2), "3번 키로 대박 타임 발동")
 	var coins_before := GameState.coins
 	player.boxes.append(type_a)
 	player.try_place(second, Shelf.required_posture(second.current_tier()))
@@ -200,21 +201,39 @@ func _ready() -> void:
 	_check(GameState.coins - coins_before == jackpot_coins, "대박 타임: 박스 1개에 %d 코인" % jackpot_coins)
 	GameState.now += 100.0
 
-	# 자석: 켜 두면 주변 장난감이 손으로 들어온다
-	# 무작위 배치에 기대지 않도록 빈 마당에 같은 형태 4개를 직접 놓는다
+	# 자석: 누를 때 한 번, 들고 있는 장난감과 같은 형태를 손 가득 끌어온다
+	# 무작위 배치에 기대지 않도록 빈 마당에 형태 0을 6개, 형태 1을 2개 직접 놓는다
 	player.global_position = Vector3(30.0, 0.9, 30.0)
-	for i in Toys.BOX_SIZE:
-		var magnet_toy := Warehouse.make_toy(false, 0)
+	var magnet_toys: Array[Node3D] = []
+	for i in 8:
+		var magnet_toy := Warehouse.make_toy(false, 0 if i < 6 else 1)
 		add_child(magnet_toy)
 		magnet_toy.global_position = Vector3(30.5 + 0.3 * i, 0.0, 30.5)
+		magnet_toys.append(magnet_toy)
 	await get_tree().physics_frame
-	_check(player.loose == 0 and player.boxes.is_empty(), "자석을 켜기 전에는 저절로 줍지 않음")
+	_check(player.loose == 0 and player.boxes.is_empty(), "자석을 누르기 전에는 저절로 줍지 않음")
+	_check(not player.use_skill(0) and GameState.cooldown_left("magnet") == 0.0,
+		"빈손이면 자석 발동 안 함 (쿨타임도 안 씀)")
+	player.try_pick(magnet_toys[0], true)
 	_check(player.use_skill(0), "1번 키로 자석 발동")
-	for i in 5:
-		await get_tree().physics_frame
-	_check(player.boxes.size() == 1, "자석: 같은 형태 4개가 모여 박스 1개 (실제 %d)" % player.boxes.size())
-	_check(player.loose == 0, "박스를 더 못 들면 자석도 멈춤")
+	await get_tree().physics_frame
+	_check(player.boxes == [0] and player.loose == 0,
+		"자석: 들고 있는 형태만 손 가득(박스 1개) (박스 %s, 낱개 %d)" % [player.boxes, player.loose])
+	_check(GameState.cooldown_left("magnet") > 0.0 and not GameState.is_active("magnet"), "자석은 지속 없이 쿨타임만")
 	player.boxes.clear()
+	player.try_pick(magnet_toys[4], true)
+	for i in 10:
+		await get_tree().physics_frame
+	_check(player.loose == 1, "한 번 발동 뒤에는 계속 끌어오지 않음 (낱개 %d)" % player.loose)
+	_check(not player.use_skill(0), "자석 쿨타임 중에는 다시 발동 불가")
+	_check(Skills.magnet_radius(10) > Skills.magnet_radius(1) and Skills.cooldown("magnet", 10) < Skills.cooldown("magnet", 1),
+		"자석 레벨업: 범위 증가, 쿨타임 감소")
+	for toy in magnet_toys:
+		if is_instance_valid(toy):
+			toy.queue_free()
+	player.loose = 0
+	player.held_type = -1
+	GameState.carried_toys.clear()
 	GameState.now += 100.0
 
 	# 황금 장난감: 한 개라도 섞인 박스는 코인 10배
@@ -245,10 +264,10 @@ func _ready() -> void:
 
 	# 액션 스킬 레벨 한계와 한계 돌파
 	for i in 20:
-		GameState.upgrade("long_arm")
-	_check(GameState.level("long_arm") == 10, "액션 스킬 레벨 한계 10 (실제 %d)" % GameState.level("long_arm"))
+		GameState.upgrade("magnet")
+	_check(GameState.level("magnet") == 10, "액션 스킬 레벨 한계 10 (실제 %d)" % GameState.level("magnet"))
 	GameState.skill_points = 1
-	_check(GameState.breakthrough("long_arm") and GameState.cap("long_arm") == 20, "한계 돌파로 20")
+	_check(GameState.breakthrough("magnet") and GameState.cap("magnet") == 20, "한계 돌파로 20")
 
 	# 선반은 한 종류만: 처음 넣은 종류로 정해지고 다른 종류는 거절한다
 	var third := warehouses[0].shelves[2]
@@ -308,16 +327,16 @@ func _ready() -> void:
 	player.boxes.clear()
 	player.loose = 0
 	player.held_type = -1
-	GameState.skill_points += 1
-	GameState.learn("magnet")
 	GameState.now += 1000.0
 	var before_magnet := magnet_field.floor_count()
+	player.try_pick(magnet_field.materialize(int(magnet_field.inside_count * 0.5)), true)
+	var magnet_type: int = player.held_type
 	_check(player.use_skill(0), "자석 발동")
-	for i in 3:
-		await get_tree().physics_frame
-	_check(player.boxes.size() >= 1 and before_magnet - magnet_field.floor_count() >= player.boxes.size() * Toys.BOX_SIZE + player.loose,
-		"자석: 바닥 장난감을 같은 형태 4개씩 박스로 끌어옴 (박스 %d, 줄어든 수 %d)" % [
-			player.boxes.size(), before_magnet - magnet_field.floor_count()])
+	await get_tree().physics_frame
+	_check(player.boxes.size() == player.carry_capacity() and player.boxes.count(magnet_type) == player.boxes.size()
+		and before_magnet - magnet_field.floor_count() >= player.boxes.size() * Toys.BOX_SIZE,
+		"자석: 바닥에서 같은 형태로 손 가득 (박스 %d/%d, 줄어든 수 %d)" % [
+			player.boxes.size(), player.carry_capacity(), before_magnet - magnet_field.floor_count()])
 	GameState.now += 1000.0
 	player.boxes.clear()
 	GameState.carried_toys.clear()
@@ -341,11 +360,17 @@ func _ready() -> void:
 	var shelves_before := GameState.shelves_completed()
 	GameState.reset()
 	_check(GameState.total_sorted == 0 and GameState.level("bundle") == 0, "초기화")
+	var points_before := int(saved["skill_points"])
+	saved["skill_levels"]["long_arm"] = 15
+	saved["skill_caps"]["long_arm"] = 20
 	GameState.from_dict(saved)
+	_check(GameState.skill_points == points_before + 2 and not GameState.skill_caps.has("long_arm"),
+		"옛 저장의 긴 팔 포인트 2개 환급")
+	GameState.skill_points = points_before
 	_check(GameState.total_sorted == total_before, "저장 왕복: 정리 수 유지")
 	_check(GameState.shelves_completed() == shelves_before, "저장 왕복: 선반 상태 유지")
-	_check(GameState.level("bundle") == 10 and GameState.cap("long_arm") == 20, "저장 왕복: 스킬 유지")
-	_check(not GameState.is_active("long_arm"), "발동 상태는 저장되지 않음")
+	_check(GameState.level("bundle") == 10 and GameState.cap("magnet") == 20, "저장 왕복: 스킬 유지")
+	_check(not GameState.is_active("jackpot"), "발동 상태는 저장되지 않음")
 
 	# 자동 정리: 켜져 있는 동안만 선반이 채워진다
 	GameState.skill_points = 1
@@ -354,7 +379,7 @@ func _ready() -> void:
 	for i in 20:
 		await get_tree().process_frame
 	_check(GameState.total_sorted == total_before, "자동 정리를 켜기 전에는 그대로")
-	_check(player.use_skill(2), "3번 키로 자동 정리 발동")
+	_check(player.use_skill(1), "2번 키로 자동 정리 발동")
 	GameState._auto_accum = 1.0
 	for i in 60:
 		await get_tree().process_frame

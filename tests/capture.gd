@@ -96,8 +96,8 @@ func _ready() -> void:
 
 	# 2층으로 가는 경사로와 문 쪽
 	# 스킬 슬롯: 자동 정리와 대박 타임을 켠 상태
+	_player.use_skill(1)
 	_player.use_skill(2)
-	_player.use_skill(3)
 	_look_from(Vector3(5.6, 0.9, -34.0), 0.3, 0.1)
 	await _wait(10)
 	await _shot("4_ramp")

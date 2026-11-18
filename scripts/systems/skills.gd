@@ -1,19 +1,20 @@
 class_name Skills
 extends RefCounted
-## 액션 스킬 4종(1~4 키로 발동)과 업그레이드 4종(항상 적용)의 정의와 수치 공식.
+## 액션 스킬 3종(1~3 키로 발동)과 업그레이드 4종(항상 적용)의 정의와 수치 공식.
 ## 상태(레벨, 발동 시각)는 GameState가 가진다.
 
 ## 스킬 포인트 1개당 올릴 수 있는 액션 스킬 레벨 수
 const CAP_PER_POINT := 10
 const BASE_REACH := 3.0
+## 지속 시간 없이 누를 때 한 번만 효과가 나는 스킬
+const INSTANT: Array[String] = ["magnet"]
 
-## 슬롯 순서 = 숫자키 1~4
-const ACTION_ORDER: Array[String] = ["magnet", "long_arm", "auto_sort", "jackpot"]
+## 슬롯 순서 = 숫자키 1~3
+const ACTION_ORDER: Array[String] = ["magnet", "auto_sort", "jackpot"]
 const UPGRADE_ORDER: Array[String] = ["bundle", "big_hands", "quick_hands", "sprint"]
 
 const DEFS := {
-	"magnet": {"name": "자석", "desc": "주변 장난감이 손으로 날아온다", "base": 100, "growth": 1.7},
-	"long_arm": {"name": "긴 팔", "desc": "자세 상관없이 멀리서도 선반에 넣는다", "base": 150, "growth": 1.7},
+	"magnet": {"name": "자석", "desc": "누르면 들고 있는 장난감과 같은 형태를 손 가득 끌어온다", "base": 100, "growth": 1.7},
 	"auto_sort": {"name": "자동 정리", "desc": "선반이 알아서 채워진다", "base": 200, "growth": 2.0},
 	"jackpot": {"name": "대박 타임", "desc": "받는 코인이 몇 배가 된다", "base": 150, "growth": 1.8},
 	"bundle": {"name": "묶음 정리", "desc": "박스에 장난감이 더 많이 담긴 것으로 계산된다", "base": 40, "growth": 2.4},
@@ -36,10 +37,6 @@ static func cost(id: String, level: int) -> int:
 ## 발동 후 효과가 유지되는 시간(초)
 static func duration(id: String, level: int) -> float:
 	match id:
-		"magnet":
-			return 4.0 + 0.6 * level
-		"long_arm":
-			return 6.0 + 1.0 * level
 		"auto_sort":
 			return 5.0 + 1.0 * level
 		"jackpot":
@@ -51,9 +48,7 @@ static func duration(id: String, level: int) -> float:
 static func cooldown(id: String, level: int) -> float:
 	match id:
 		"magnet":
-			return maxf(8.0, 20.0 - 0.5 * level)
-		"long_arm":
-			return maxf(10.0, 25.0 - 0.5 * level)
+			return maxf(3.0, 15.0 - 0.6 * level)
 		"auto_sort":
 			return maxf(10.0, 30.0 - 0.6 * level)
 		"jackpot":
@@ -69,12 +64,7 @@ static func uptime(id: String, level: int) -> float:
 
 
 static func magnet_radius(level: int) -> float:
-	return 2.5 + 0.4 * level
-
-
-## 긴 팔이 켜져 있을 때 닿는 거리
-static func reach(level: int) -> float:
-	return BASE_REACH + 3.0 + 0.5 * level
+	return 3.0 + 0.5 * level
 
 
 static func jackpot_mult(level: int) -> float:
@@ -126,12 +116,10 @@ static func fmt(value: int) -> String:
 
 static func effect_text(id: String, level: int) -> String:
 	if is_action(id):
+		if id in INSTANT:
+			return "반경 %.1fm, %.0f초마다 1번" % [magnet_radius(level), cooldown(id, level)]
 		var timing := "%.0f초 지속 / %.0f초마다" % [duration(id, level), cooldown(id, level)]
 		match id:
-			"magnet":
-				return "반경 %.1fm, %s" % [magnet_radius(level), timing]
-			"long_arm":
-				return "팔 길이 %.1fm, %s" % [reach(level), timing]
 			"auto_sort":
 				return "초당 박스 %.1f개, %s" % [auto_boxes(level), timing]
 			"jackpot":

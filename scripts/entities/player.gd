@@ -103,7 +103,6 @@ func _physics_process(delta: float) -> void:
 			velocity.y = JUMP_VELOCITY
 		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		_update_repeat(delta)
-	_update_magnet()
 
 	var target_head_y := CROUCH_HEAD_Y if is_crouching else STAND_HEAD_Y
 	head.position.y = lerpf(head.position.y, target_head_y, CROUCH_LERP_SPEED * delta)
@@ -153,7 +152,7 @@ func try_pick(toy: Node3D, quiet: bool = false) -> bool:
 	return true
 
 
-## 액션 스킬 발동 (slot 0~3 = 숫자키 1~4)
+## 액션 스킬 발동 (slot 0~2 = 숫자키 1~3)
 func use_skill(slot: int) -> bool:
 	var id := Skills.ACTION_ORDER[slot]
 	var skill_name: String = Skills.DEFS[id]["name"]
@@ -161,58 +160,71 @@ func use_skill(slot: int) -> bool:
 		EventBus.message_shown.emit("%s: 아직 배우지 않았습니다 (Tab)" % skill_name)
 		Sfx.play("error")
 		return false
-	if not GameState.activate(id):
+	if GameState.cooldown_left(id) > 0.0:
 		EventBus.message_shown.emit(
 			"%s: 쿨타임 %d초" % [skill_name, ceili(GameState.cooldown_left(id))]
 		)
 		Sfx.play("error")
 		return false
+	if id == "magnet":
+		return _use_magnet()
+	GameState.activate(id)
 	EventBus.message_shown.emit("%s 발동!" % skill_name)
 	Sfx.play("unlock", 1.6)
 	return true
 
 
-## 자석이 켜져 있는 동안 주변 장난감이 손으로 날아온다. 모으는 형태가 있으면 그 형태만.
-func _update_magnet() -> void:
-	if not GameState.is_active("magnet"):
-		return
+## 자석: 누를 때 한 번, 들고 있는 장난감과 같은 형태를 반경 안에서 손 가득 끌어온다.
+## 아무것도 안 들었거나 끌어올 게 없으면 쿨타임을 쓰지 않는다.
+func _use_magnet() -> bool:
+	var type: int = held_type if loose > 0 else (boxes[-1] if not boxes.is_empty() else -1)
 	var capacity := carry_capacity()
+	var want := (capacity - boxes.size()) * Toys.BOX_SIZE - loose
+	if type < 0:
+		EventBus.message_shown.emit("자석: 먼저 장난감을 하나 주우세요")
+	elif want <= 0:
+		EventBus.message_shown.emit("자석: 손이 가득 찼어요")
+	else:
+		var pulled := magnet_pull(type, want)
+		if pulled > 0:
+			GameState.activate("magnet")
+			EventBus.message_shown.emit("자석! %s %d개" % [Toys.NAMES[type], pulled])
+			Sfx.play("unlock", 1.6)
+			return true
+		EventBus.message_shown.emit("자석: 주변에 같은 장난감(%s)이 없어요" % Toys.NAMES[type])
+	Sfx.play("error")
+	return false
+
+
+## 반경 안의 type 장난감을 최대 limit개 끌어온다. 버린 장난감은 줍지 않는다.
+func magnet_pull(type: int, limit: int) -> int:
 	var radius := Skills.magnet_radius(GameState.level("magnet"))
-	var took := false
+	var pulled := 0
 	for toy: Node3D in get_tree().get_nodes_in_group("toy"):
-		if boxes.size() >= capacity:
+		if pulled >= limit:
 			break
-		if toy.is_queued_for_deletion():
+		if toy.is_queued_for_deletion() or toy.get_meta("dropped", false):
 			continue
-		if toy.get_meta("dropped", false):
-			continue
-		if loose > 0 and int(toy.get_meta("toy_type", -1)) != held_type:
+		if int(toy.get_meta("toy_type", -1)) != type:
 			continue
 		var offset := toy.global_position - global_position
 		if absf(offset.y) > 2.0 or Vector2(offset.x, offset.z).length() > radius:
 			continue
 		_take(toy, true)
-		took = true
-	# 바닥에 깔린 장난감: 모으는 형태가 정해지면 그 형태만, 박스 하나 분량씩
-	for round_index in 4:
-		if boxes.size() >= capacity:
+		pulled += 1
+	for field in ToyField.all:
+		if pulled >= limit:
 			break
-		var type := held_type if loose > 0 else -1
-		var want := Toys.BOX_SIZE - loose if loose > 0 else 1
-		var pulled := 0
-		for field in ToyField.all:
-			for toy in field.take_near(global_position, radius, type, want - pulled):
-				_take(toy, true)
-				pulled += 1
-				took = true
-		if pulled == 0:
-			break
-	if took:
+		for toy in field.take_near(global_position, radius, type, limit - pulled):
+			_take(toy, true)
+			pulled += 1
+	if pulled > 0:
 		Sfx.play("pick", 1.0 + 0.08 * loose)
 		_refresh_hands()
+	return pulled
 
 
-## 들고 있는 박스를 선반의 현재 단에 넣는다. 긴 팔이 켜져 있지 않으면 자세가 맞아야 한다.
+## 들고 있는 박스를 선반의 현재 단에 넣는다. 자세가 맞아야 한다.
 func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> bool:
 	if boxes.is_empty():
 		if not quiet:
@@ -225,7 +237,7 @@ func try_place(shelf: Shelf, posture: Shelf.Posture, quiet: bool = false) -> boo
 			EventBus.message_shown.emit("가득 찬 선반입니다")
 		return false
 	var required := Shelf.required_posture(shelf.current_tier())
-	if not GameState.is_active("long_arm") and posture != required:
+	if posture != required:
 		if not quiet:
 			EventBus.message_shown.emit(
 				"%d단: %s" % [shelf.current_tier(), Shelf.posture_text(required)]
@@ -301,8 +313,6 @@ func _update_repeat(delta: float) -> void:
 func _raycast() -> Object:
 	var from := camera.global_position
 	var reach := Skills.BASE_REACH
-	if GameState.is_active("long_arm"):
-		reach = Skills.reach(GameState.level("long_arm"))
 	var direction := -camera.global_basis.z
 	var query := PhysicsRayQueryParameters3D.create(from, from + direction * reach, RAY_MASK, [get_rid()])
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
@@ -332,8 +342,6 @@ func _update_aim_text() -> void:
 		var shelf := target as Shelf
 		if shelf.is_full():
 			text = "완성된 선반"
-		elif GameState.is_active("long_arm"):
-			text = "%d단: 좌클릭으로 넣기" % shelf.current_tier()
 		else:
 			var tier := shelf.current_tier()
 			text = "%d단: %s" % [tier, Shelf.posture_text(Shelf.required_posture(tier))]

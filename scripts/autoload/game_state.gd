@@ -396,6 +396,12 @@ func from_dict(data: Dictionary) -> void:
 		doors_opened.append(int(id))
 	skill_levels = _int_dict(data.get("skill_levels", {}))
 	skill_caps = _int_dict(data.get("skill_caps", {}))
+	# 없어진 스킬(긴 팔)에 쓴 스킬 포인트는 돌려준다
+	for removed: String in skill_caps.keys():
+		if not Skills.DEFS.has(removed):
+			skill_points += int(skill_caps[removed] / Skills.CAP_PER_POINT)
+			skill_caps.erase(removed)
+			skill_levels.erase(removed)
 	shelf_stored = _int_dict(data.get("shelf_stored", {}))
 	shelf_types = _int_dict(data.get("shelf_types", {}))
 	boxes_total = int(data.get("boxes_total", 0))

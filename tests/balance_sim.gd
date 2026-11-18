@@ -12,9 +12,9 @@ const SEARCH_SECONDS := 0.6
 const POSTURE_SECONDS := 0.6
 const MILESTONES: Array[int] = [100, 1000, 5000, 10000, 100000, 1000000, 5000000, 10000000]
 ## 액션 스킬을 배우는 순서, 한계 돌파 우선순위
-const LEARN_ORDER: Array[String] = ["magnet", "auto_sort", "jackpot", "long_arm"]
-const BREAK_ORDER: Array[String] = ["auto_sort", "jackpot", "magnet", "long_arm"]
-## 자석이 켜져 있을 때 줍는 시간이 줄어드는 비율
+const LEARN_ORDER: Array[String] = ["magnet", "auto_sort", "jackpot"]
+const BREAK_ORDER: Array[String] = ["auto_sort", "jackpot", "magnet"]
+## 자석으로 손을 채운 왕복에서 줍는 시간이 줄어드는 비율
 const MAGNET_SAVING := 0.8
 
 var _levels: Dictionary = {}
@@ -79,14 +79,17 @@ func _manual_boxes() -> float:
 	if interval > 0.0:
 		click = interval
 	# 박스 하나에 같은 형태 장난감 BOX_SIZE개를 집어야 한다.
-	# 자석이 켜져 있는 동안에는 찾아다니고 클릭하는 시간이 크게 준다.
+	# 자석은 쿨타임마다 한 번 손을 채워 준다: 그 왕복에서는 찾아다니고 클릭하는 시간이 크게 준다.
 	var picks := float(carry * Toys.BOX_SIZE)
 	var speed := Skills.speed_mult(_level("sprint"))
 	var pick_time := picks * (SEARCH_SECONDS / speed + click)
-	pick_time *= 1.0 - MAGNET_SAVING * Skills.uptime("magnet", _level("magnet"))
-	var cycle := WALK_SECONDS / speed + pick_time + click
-	cycle += POSTURE_SECONDS * (1.0 - Skills.uptime("long_arm", _level("long_arm")))
-	return carry / cycle
+	var other := WALK_SECONDS / speed + click + POSTURE_SECONDS
+	var magnet := _level("magnet")
+	if magnet > 0:
+		# 자석을 쓴 왕복의 비율 = 왕복 시간 / 쿨타임 (최대 1)
+		var assisted := minf(1.0, (other + pick_time * (1.0 - MAGNET_SAVING)) / Skills.cooldown("magnet", magnet))
+		pick_time *= 1.0 - MAGNET_SAVING * assisted
+	return carry / (other + pick_time)
 
 
 ## 대박 타임 가동률을 반영한 평균 코인 배수
