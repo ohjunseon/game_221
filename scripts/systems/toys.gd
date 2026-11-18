@@ -98,23 +98,37 @@ static func make_visual(type: int) -> Node3D:
 
 
 ## 형태 색 라벨이 붙은 골판지 박스. 가운데가 원점이다.
+## 박스 몸통 색: 장난감 형태 색을 그대로 입혀 멀리서도 종류를 알아보게 한다
+static func box_color(type: int) -> Color:
+	return COLORS[type]
+
+
+## 박스 앞면 라벨 색: 몸통보다 어둡게 해서 무늬로 보이게 한다
+static func label_color(type: int) -> Color:
+	return COLORS[type].darkened(0.4)
+
+
+## 손에 들거나 바닥에 놓는 박스: 형태 색 몸통, 앞면 라벨, 테이프, 윗면에 그 장난감 모형.
+## 자식 순서(라벨, 테이프, 모형)는 set_box_type이 기대한다.
 static func make_box(type: int, size: float) -> MeshInstance3D:
 	var box := MeshInstance3D.new()
 	box.mesh = _mesh("box")
-	box.material_override = _material(CARDBOARD)
 	box.scale = Vector3.ONE * size
 	var label := MeshInstance3D.new()
 	label.mesh = _mesh("box")
-	label.material_override = _material(COLORS[type])
 	label.scale = Vector3(0.6, 0.6, 0.06)
 	label.position = Vector3(0, 0, 0.5)
 	box.add_child(label)
-	# 윗면과 옆면을 두르는 테이프 (라벨이 첫 번째 자식이어야 한다: set_box_type 참고)
 	var tape := MeshInstance3D.new()
 	tape.mesh = _mesh("box")
 	tape.material_override = _material(TAPE)
 	tape.scale = Vector3(0.2, 1.02, 1.02)
 	box.add_child(tape)
+	var figure := MeshInstance3D.new()
+	figure.scale = Vector3.ONE * 1.8
+	figure.position = Vector3(0, 0.5, 0)
+	box.add_child(figure)
+	set_box_type(box, type)
 	return box
 
 
@@ -123,8 +137,8 @@ static func box_mesh(type: int) -> ArrayMesh:
 	if not _box_meshes.has(type):
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		Look.add_cuboid(st, Vector3.ZERO, Vector3.ONE, CARDBOARD)
-		Look.add_cuboid(st, Vector3(0.0, 0.0, 0.5), Vector3(0.6, 0.6, 0.06), COLORS[type])
+		Look.add_cuboid(st, Vector3.ZERO, Vector3.ONE, box_color(type))
+		Look.add_cuboid(st, Vector3(0.0, 0.0, 0.5), Vector3(0.6, 0.6, 0.06), label_color(type))
 		Look.add_cuboid(st, Vector3.ZERO, Vector3(0.2, 1.02, 1.02), TAPE)
 		var mesh := st.commit()
 		mesh.surface_set_material(0, Look.vertex_color(0.5))
@@ -209,7 +223,10 @@ static func gold_mesh() -> BoxMesh:
 
 ## 이미 만든 박스의 라벨을 다른 형태 색으로 바꾼다.
 static func set_box_type(box: MeshInstance3D, type: int) -> void:
-	(box.get_child(0) as MeshInstance3D).material_override = _material(COLORS[type])
+	box.set_meta("box_type", type)
+	(box.get_child(0) as MeshInstance3D).material_override = _material(label_color(type))
+	(box.get_child(2) as MeshInstance3D).mesh = field_mesh(type)
+	set_box_golden(box, box.get_meta("golden", false))
 
 
 ## 장난감(자식 메시 전부)을 금색으로 빛나게 한다.
@@ -220,9 +237,11 @@ static func gild(node: Node) -> void:
 		(node as MeshInstance3D).material_override = Look.glow(GOLD, 0.9)
 
 
-## 박스 몸통을 금색 또는 골판지 색으로 바꾼다. 라벨과 테이프는 그대로다.
+## 박스 몸통을 금색 또는 형태 색으로 바꾼다. 라벨·테이프·모형은 그대로다.
 static func set_box_golden(box: MeshInstance3D, golden: bool) -> void:
-	box.material_override = Look.glow(GOLD, 0.9) if golden else _material(CARDBOARD)
+	box.set_meta("golden", golden)
+	var type: int = box.get_meta("box_type", 0)
+	box.material_override = Look.glow(GOLD, 0.9) if golden else _material(box_color(type))
 
 
 static func _part(

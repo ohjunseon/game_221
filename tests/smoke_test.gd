@@ -374,6 +374,15 @@ func _ready() -> void:
 	await get_tree().create_timer(1.1).timeout
 	_check(magnet_field.alive == GameState.ground_toys(1, 0), "자동 정리만큼 바닥 장난감이 줄어듦 (%d → %d)" % [before_auto, magnet_field.alive])
 
+	# 2층 잠금: 경사로 옆면으로 점프해 올라탈 수 없다 (1층 쪽에서 경사로를 향해 쏜 광선이 막힌다)
+	var w1: Warehouse = warehouses[0]
+	var ramp_z := -w1.depth / 2.0 + Warehouse.RAMP_DEPTH
+	var side_ray := PhysicsRayQueryParameters3D.create(
+		w1.to_global(Vector3(3.0, 1.2, ramp_z + 1.0)), w1.to_global(Vector3(3.0, 1.2, ramp_z - 1.0)))
+	var side_hit := w1.get_world_3d().direct_space_state.intersect_ray(side_ray)
+	_check(not side_hit.is_empty() and (side_hit["collider"] as Node).get_parent() == w1._gate,
+		"잠긴 2층: 경사로 옆면이 막혀 있음")
+
 	# 층 진행: 1층을 다 채워야 2층이 열린다
 	_check(not GameState.is_floor_active(1, 1), "1층 완료 전 2층 비활성")
 	for shelf_index in GameState.shelves_per_floor(1):

@@ -347,6 +347,16 @@ func _build_upper_floor() -> void:
 		Vector3(RAMP_HALF_RUN + 0.3, 1.1, ramp_center_z),
 		Look.hazard(0.8)
 	)
+	# 경사로 옆면(1층 쪽)도 2층 바닥까지 막는다. 막지 않으면 낮은 쪽으로 점프해 올라탈 수 있다
+	var side_height := FLOOR_HEIGHT - SLAB_THICKNESS
+	var side := _box(
+		Vector3(run + 0.4, side_height, 0.1),
+		Vector3(0.2, side_height / 2.0, ramp_front_z + 0.05),
+		Look.grid(Color(1.0, 0.84, 0.35), Color(0.3, 0.32, 0.4), 0.4)
+	)
+	remove_child(side)
+	side.position -= _gate.position
+	_gate.add_child(side)
 	var gate_label := Label3D.new()
 	gate_label.outline_size = 16
 	gate_label.text = "1층을 모두 정리하면\n2층이 열립니다"

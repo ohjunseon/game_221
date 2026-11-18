@@ -35,6 +35,10 @@ var _highlight: MeshInstance3D
 var _label: Label3D
 var _boxes: MultiMeshInstance3D
 var _box_type: int = -1
+## 선반 맨 위 앞면의 형태 색 간판과, 그 위에 올린 큰 장난감 모형
+var _sign: MeshInstance3D
+var _figure: MeshInstance3D
+static var _sign_materials: Dictionary = {}
 var _shown: int = 0
 ## 튀어나오는 중인 박스: 칸 번호 → 지난 시간
 var _pops: Dictionary = {}
@@ -144,6 +148,16 @@ func _sync() -> void:
 	if type >= 0 and type != _box_type:
 		_box_type = type
 		_boxes.multimesh.mesh = Toys.box_mesh(type)
+		if not _sign_materials.has(type):
+			_sign_materials[type] = Look.matte(Toys.COLORS[type])
+		_sign.material_override = _sign_materials[type]
+		_figure.mesh = Toys.field_mesh(type)
+	# 빈 선반은 흰 간판(아무 박스나 받음), 종류가 정해지면 그 색 간판과 모형
+	if type < 0:
+		if not _sign_materials.has(-1):
+			_sign_materials[-1] = Look.matte(Color(0.95, 0.95, 0.95))
+		_sign.material_override = _sign_materials[-1]
+	_figure.visible = type >= 0
 	if _live and count > _shown:
 		for index in range(maxi(_shown, count - MAX_POPS), count):
 			_pops[index] = 0.0
@@ -324,6 +338,20 @@ func _build() -> void:
 	_label.outline_size = 12
 	_label.outline_modulate = Color(0.1, 0.12, 0.22)
 	_label.pixel_size = 0.004
-	_label.position.y = total_height + 0.3
+	_label.position = Vector3(0.0, total_height + 0.45, DEPTH / 2.0 + 0.15)
 	_label.visibility_range_end = LABEL_RANGE
 	add_child(_label)
+
+	# 종류 간판: 맨 위 단 앞에 형태 색 판, 선반 지붕 위에 그 장난감 모형 (멀리서도 보인다)
+	_sign = MeshInstance3D.new()
+	var sign_mesh := BoxMesh.new()
+	sign_mesh.size = Vector3(WIDTH, 0.3, 0.04)
+	_sign.mesh = sign_mesh
+	_sign.position = Vector3(0.0, total_height + 0.15, DEPTH / 2.0 + 0.03)
+	_sign.visibility_range_end = DRAW_RANGE
+	add_child(_sign)
+	_figure = MeshInstance3D.new()
+	_figure.scale = Vector3.ONE * 2.2
+	_figure.position = Vector3(0.0, total_height + 0.02, -0.05)
+	_figure.visibility_range_end = DRAW_RANGE
+	add_child(_figure)
