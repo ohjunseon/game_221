@@ -2,7 +2,7 @@ class_name ToyField
 extends Node3D
 ## 한 층의 바닥 장난감 전부. 재고 수만큼 자리를 만들어 MultiMesh로 한 번에 그리고,
 ## 플레이어가 조준하거나 자석으로 끌어올 때만 그 자리를 진짜 장난감 노드로 바꾼다.
-## 자리 순서: 창고 안(아래 겹부터) → 문 밖 마당의 장난감 산(아래 겹부터).
+## 자리 순서: 창고 가운데 장난감 산(아래 겹부터) → 문 밖 마당의 장난감 산(아래 겹부터).
 ## 재고가 줄면 마지막 자리(산 꼭대기)부터 사라진다.
 ## 창고(Warehouse)의 자식이라 좌표는 창고 로컬이다.
 
@@ -13,13 +13,11 @@ const TOY_HEIGHT := 0.3
 const WALL_MARGIN := 0.4
 ## 선반 앞에 비워 두는 폭 (박스를 넣을 때 장난감이 가리지 않게)
 const SHELF_CLEARANCE := 0.55
-## 통로 바닥에 까는 겹 수
-const CARPET_LAYERS := 3
-## 입고장 더미 사이로 문에서 통로까지 낮게 남기는 길의 반폭
-const LANE_HALF_WIDTH := 1.1
-## 입고장·안쪽 더미: 가장자리에서 1m 들어갈 때마다 늘어나는 겹 수, 최대 겹 수 (천장 4m 아래)
-const ZONE_SLOPE := 5.0
-const ZONE_MAX_LAYERS := 17
+## 창고 가운데 산: 가장자리에서 1m 들어갈 때마다 늘어나는 겹 수(기울기 0.6), 최대 겹 수(천장 3.7m 아래)
+const MOUNTAIN_SLOPE := 3.0
+const MOUNTAIN_MAX_LAYERS := 16
+## 산 밑면 최대 반경. 이보다 크면 창고가 장난감에 파묻히므로 남는 만큼은 마당 산으로 보낸다
+const MOUNTAIN_MAX_RADIUS := 7.0
 ## 마당 산: 문 앞에서 띄우는 거리, 가로/세로 비, 최대 겹 수
 const YARD_GAP := 2.5
 const YARD_ASPECT := 1.4
@@ -78,7 +76,7 @@ func build(warehouse: int, floor_number: int, count: int) -> void:
 	_grid_origin = Vector2(-size.x / 2.0 + WALL_MARGIN, -size.y / 2.0 + WALL_MARGIN)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(key)
-	_add_layers(_inside_columns(size), floor_index * Warehouse.FLOOR_HEIGHT, count, rng)
+	_add_layers(_inside_columns(size, count), floor_index * Warehouse.FLOOR_HEIGHT, count, rng)
 	inside_count = positions.size()
 	if positions.size() < count:
 		_add_layers(_yard_columns(size, count - positions.size()), 0.0, count, rng)
@@ -88,16 +86,18 @@ func build(warehouse: int, floor_number: int, count: int) -> void:
 	_top = alive - 1
 
 
-## 창고 바닥의 칸들: Vector3i(x칸, z칸, 최대 겹 수)
-func _inside_columns(size: Vector2) -> Array[Vector3i]:
-	var result: Array[Vector3i] = []
+## 창고 가운데에 쌓는 산의 칸들: Vector3i(x칸, z칸, 겹 수).
+## needed개가 다 들어가는 가장 작은 반경을 찾는다. 선반·경사로 자리는 비우고, 천장에 닿으면 꼭대기가 평평해진다.
+## 반경 MOUNTAIN_MAX_RADIUS로도 모자라면 남은 만큼은 마당 산으로 간다.
+func _inside_columns(size: Vector2, needed: int) -> Array[Vector3i]:
 	var half_w := size.x / 2.0 - WALL_MARGIN
 	var half_d := size.y / 2.0 - WALL_MARGIN
-	var front_z := size.y / 2.0 - Warehouse.FRONT_ZONE
-	var back_z := -size.y / 2.0 + Warehouse.BACK_ZONE
 	var shelf_rects := _shelf_rects()
 	var nx := int((half_w * 2.0) / SPACING) + 1
 	var nz := int((half_d * 2.0) / SPACING) + 1
+	# 쓸 수 있는 칸과 가운데까지의 거리
+	var cells: Array[Vector2i] = []
+	var dists: PackedFloat32Array = []
 	for ix in nx:
 		for iz in nz:
 			var p := _cell_center(ix, iz)
@@ -113,24 +113,37 @@ func _inside_columns(size: Vector2) -> Array[Vector3i]:
 					break
 			if blocked:
 				continue
-			var layers := CARPET_LAYERS
-			if p.y > front_z + 0.3 or p.y < back_z - 0.3:
-				# 입고장·안쪽 구역: 가운데로 갈수록 높아지는 더미. 문 앞 길은 낮게 둔다
-				var in_front := p.y > front_z
-				var zone_min := front_z + 0.3 if in_front else -half_d
-				var zone_max := half_d if in_front else back_z - 0.3
-				var edge := minf(
-					minf(p.x + half_w, half_w - p.x),
-					minf(p.y - zone_min, zone_max - p.y)
-				)
-				if in_front:
-					edge = minf(edge, absf(p.x) - LANE_HALF_WIDTH)
-				if edge <= 0.0:
-					layers = 1
-				else:
-					layers = clampi(CARPET_LAYERS + int(edge * ZONE_SLOPE), 1, ZONE_MAX_LAYERS)
-			result.append(Vector3i(ix, iz, layers))
+			cells.append(Vector2i(ix, iz))
+			dists.append(p.length())
+	# 반경 이분 탐색: 겹 수 합이 needed 이상인 가장 작은 반경
+	var low := 0.0
+	var high := MOUNTAIN_MAX_RADIUS
+	if _mountain_capacity(dists, high) >= needed:
+		for i in 24:
+			var mid := (low + high) / 2.0
+			if _mountain_capacity(dists, mid) >= needed:
+				high = mid
+			else:
+				low = mid
+	var result: Array[Vector3i] = []
+	for i in cells.size():
+		var layers := _mountain_layers(dists[i], high)
+		if layers > 0:
+			result.append(Vector3i(cells[i].x, cells[i].y, layers))
 	return result
+
+
+func _mountain_layers(distance: float, radius: float) -> int:
+	return mini(MOUNTAIN_MAX_LAYERS, int((radius - distance) * MOUNTAIN_SLOPE))
+
+
+func _mountain_capacity(dists: PackedFloat32Array, radius: float) -> int:
+	var total := 0
+	for d in dists:
+		var layers := _mountain_layers(d, radius)
+		if layers > 0:
+			total += layers
+	return total
 
 
 ## 선반 자리 + 앞쪽 여유 (창고 로컬 x/z 평면). 배치는 Warehouse._build_shelves와 같다.

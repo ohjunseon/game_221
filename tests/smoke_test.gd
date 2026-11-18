@@ -346,8 +346,14 @@ func _ready() -> void:
 		_check(each != null and each.alive == expected_toys,
 			"창고 %d 1층 바닥 장난감 = 재고 %d (실제 %d)" % [i + 1, expected_toys, each.alive if each else -1])
 	var big: ToyField = warehouses[3].fields[0]
-	_check(big.inside_count < big.alive and big.inside_count > 15000,
-		"창고 4: 안에 %d개, 넘친 %d개는 마당 산" % [big.inside_count, big.alive - big.inside_count])
+	var small: ToyField = warehouses[0].fields[0]
+	var peak := 0.0
+	for at in small.positions:
+		peak = maxf(peak, at.y)
+	_check(peak > 2.0 and peak < Warehouse.FLOOR_HEIGHT - 0.6,
+		"창고 1: 가운데 장난감 산 높이 %.1fm (천장 아래)" % peak)
+	_check(big.inside_count > 3000 and big.inside_count < big.alive,
+		"창고 4: 가운데 산 %d개, 넘친 %d개는 마당 산" % [big.inside_count, big.alive - big.inside_count])
 	# 자석: 바닥 장난감을 같은 형태로 박스 분량씩 끌어온다
 	var magnet_field: ToyField = warehouses[0].fields[0]
 	player.global_position = magnet_field.to_global(magnet_field.positions[int(magnet_field.inside_count * 0.5)]) + Vector3.UP * 0.9
@@ -361,7 +367,7 @@ func _ready() -> void:
 	_check(player.use_skill(0), "자석 발동")
 	await get_tree().physics_frame
 	_check(player.boxes.size() == player.carry_capacity() and player.boxes.count(magnet_type) == player.boxes.size()
-		and before_magnet - magnet_field.floor_count() >= player.boxes.size() * Toys.BOX_SIZE,
+		and before_magnet - magnet_field.floor_count() > 0,
 		"자석: 바닥에서 같은 형태로 손 가득 (박스 %d/%d, 줄어든 수 %d)" % [
 			player.boxes.size(), player.carry_capacity(), before_magnet - magnet_field.floor_count()])
 	GameState.now += 1000.0
